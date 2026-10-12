@@ -1,0 +1,201 @@
+// TrackFit backend — Prisma schema
+// MVP 1 scope: Identity + Tracking modules only (per architecture.md §3, §0.1).
+// Nutrition/Goals/Social/Notifications tables are added when their phase starts.
+//
+// Modules are kept in separate Postgres schemas (the "separate schema per module"
+// guardrail from architecture.md §3) so an accidental cross-module join requires
+// an explicit cross-schema reference.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["identity", "tracking"]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Identity module
+// ─────────────────────────────────────────────────────────────────────────
+
+enum UnitsPreference {
+  METRIC
+  IMPERIAL
+
+  @@schema("identity")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  /// Firebase Auth UID — the external identity this user maps to.
+  firebaseUid String   @unique
+  displayName String
+  phoneNumber String?  @unique
+  email       String?  @unique
+  units       UnitsPreference @default(METRIC)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  weightEntries    WeightEntry[]
+  workoutTemplates WorkoutTemplate[]
+  workoutSessions  WorkoutSession[]
+  customExercises  Exercise[]
+
+  @@schema("identity")
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tracking module (weight + workouts — see architecture.md §3 for why
+// these two live in one module rather than being split)
+// ─────────────────────────────────────────────────────────────────────────
+
+model WeightEntry {
+  id              String   @id @default(uuid())
+  userId          String
+  recordedAt      DateTime @default(now())
+  weightKg        Float
+  bodyFatPercent  Float?
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedAt])
+  @@schema("tracking")
+  @@map("weight_entries")
+}
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  LEGS
+  GLUTES
+  CORE
+  FULL_BODY
+  CARDIO
+  OTHER
+
+  @@schema("tracking")
+}
+
+model Exercise {
+  id           String      @id @default(uuid())
+  name         String
+  muscleGroup  MuscleGroup
+  equipment    String?
+  isCustom     Boolean     @default(false)
+  ownerId      String?
+  createdAt    DateTime    @default(now())
+
+  owner      User?               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  setLogs    SetLog[]
+  templateItems WorkoutTemplateExercise[]
+
+  @@index([name])
+  @@schema("tracking")
+  @@map("exercises")
+}
+
+model WorkoutTemplate {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+
+  user      User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercises WorkoutTemplateExercise[]
+  sessions  WorkoutSession[]
+
+  @@index([userId])
+  @@schema("tracking")
+  @@map("workout_templates")
+}
+
+/// Join table: which exercises belong to a template, in what order, with target sets/reps.
+model WorkoutTemplateExercise {
+  id               String  @id @default(uuid())
+  templateId       String
+  exerciseId       String
+  order            Int
+  targetSets       Int
+  targetReps       Int
+
+  template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  exercise Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@unique([templateId, order])
+  @@schema("tracking")
+  @@map("workout_template_exercises")
+}
+
+model WorkoutSession {
+  id              String    @id @default(uuid())
+  userId          String
+  templateId      String?
+  startedAt       DateTime  @default(now())
+  durationMinutes Int?
+  notes           String?
+  /// Opt-in per-session club sharing (spec §4.7). Always false for MVP1 — no
+  /// Social module yet — kept on the model now so Phase 3 doesn't need a migration
+  /// that touches already-logged sessions.
+  shareToClubs    Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template  WorkoutTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  sets      SetLog[]
+  milestones Milestone[]
+
+  @@index([userId, startedAt])
+  @@schema("tracking")
+  @@map("workout_sessions")
+}
+
+model SetLog {
+  id         String  @id @default(uuid())
+  sessionId  String
+  exerciseId String
+  setNumber  Int
+  reps       Int
+  weightKg   Float
+  rpe        Float?
+  notes      String?
+
+  session  WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId])
+  @@index([exerciseId])
+  @@schema("tracking")
+  @@map("set_logs")
+}
+
+enum MilestoneType {
+  HEAVIEST_SET
+  ESTIMATED_1RM
+  MOST_REPS_AT_WEIGHT
+
+  @@schema("tracking")
+}
+
+/// Personal records, auto-detected right after a session is logged (spec §4.2).
+model Milestone {
+  id          String        @id @default(uuid())
+  sessionId   String
+  exerciseId  String
+  type        MilestoneType
+  value       Float
+  achievedAt  DateTime      @default(now())
+
+  session WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([exerciseId])
+  @@schema("tracking")
+  @@map("milestones")
+}
