@@ -10,7 +10,7 @@ import {
 } from "./engine/index.js";
 import {
   archiveActiveProgram, deactivateProgramTemplates, getActiveProgram, getIntake, insertGeneratedTemplates, insertProgram,
-  listActiveSessions, markOnboarded, setReminderTime, updateProgramSchedule, upsertHealthScreening, upsertIntake,
+  emailTakenByOther, listActiveSessions, markOnboarded, setReminderTime, updateProgramSchedule, upsertHealthScreening, upsertIntake,
   type IntakeExtras, type StoredSession,
 } from "./planning.repository.js";
 import {
@@ -73,6 +73,9 @@ export async function completeOnboarding(
   const issues = validateIntake(input.training, input.diet);
   if (issues.length) throw badInput("Some answers need another look.", issues);
   checkStartDate(input.startDate);
+  if (!user.email && input.email && (await emailTakenByOther(user.id, input.email))) {
+    throw badInput("That email already has a TrackFit account. Sign in instead.", [{ field: "email", message: "Already registered." }]);
+  }
 
   const plan = generatePlan(input.training, input.diet, input.startDate);
   const client = await pool.connect();

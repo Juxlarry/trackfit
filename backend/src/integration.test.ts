@@ -226,6 +226,15 @@ test("redoing onboarding starts cycle 2 and archives cycle 1", async () => {
   assert.deepEqual(rows, [{ status: "ACTIVE", n: 1 }, { status: "ARCHIVED", n: 1 }]);
 });
 
+test("an email already owned by another account is rejected cleanly", async () => {
+  const other = await newUser("Someone Else");
+  const r = await gql(ONBOARD, { i: { email: "JAY@example.com", screening: screeningClear, training, diet, startDate: today } }, other);
+  assert.equal(r.errors?.[0].extensions.code, "BAD_USER_INPUT");
+  assert.match(r.errors?.[0].message, /already has a TrackFit account/);
+  const { rows } = await pool.query(`SELECT count(*)::int AS n FROM tracking.generated_programs WHERE user_id = $1`, [other]);
+  assert.equal(rows[0].n, 0, "nothing is saved");
+});
+
 test("everything requires sign-in except previewPlan", async () => {
   const r = await gql(`{ myPlan { programId } }`);
   assert.equal(r.errors?.[0].extensions.code, "UNAUTHENTICATED");

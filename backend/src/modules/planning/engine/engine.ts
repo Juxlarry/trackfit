@@ -359,3 +359,35 @@ export function generatePlan(i: TrainingInput, d: DietInput, startIso: string, d
     dayRange: dayRange(i.daysPerWeek),
   };
 }
+
+// ── Copy shared by the welcome email and its in-app preview ───────────────
+
+const DAY = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MONTH = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+export function longDate(iso: string): string {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${DAY[weekdayOf(iso)]} ${d} ${MONTH[m - 1]}`;
+}
+
+/**
+ * The start-date sentence from onboarding-flow.md, e.g.
+ * "You start tomorrow, Tuesday 27 October, with Lower. We'll send a reminder tonight."
+ */
+export function startSentence(todayIso: string, startIso: string, sessions: { weekday: number; name: string }[]): string {
+  let first = sessions[0];
+  let offset = 0;
+  for (let k = 0; k < 7; k++) {
+    const hit = sessions.find((s) => s.weekday === weekdayOf(addDaysIso(startIso, k)));
+    if (hit) { first = hit; offset = k; break; }
+  }
+  const firstDate = addDaysIso(startIso, offset);
+  const when = offset === 0 ? "" : ` on ${longDate(firstDate)}`;
+  if (startIso === todayIso) {
+    return offset === 0
+      ? `You start today. Your first session, ${first.name}, is ready when you are.`
+      : `You start today. It's a rest day, so your first session is ${first.name}${when}.`;
+  }
+  if (startIso === addDaysIso(todayIso, 1)) return `You start tomorrow, ${longDate(startIso)}, with ${first.name}${when}. We'll send a reminder tonight.`;
+  return `You start on ${longDate(startIso)} with ${first.name}${when}. We'll remind you the evening before.`;
+}
+

@@ -1,144 +1,87 @@
 import { useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@apollo/client/react";
-import type { ConfirmationResult } from "firebase/auth";
+import { Activity, ArrowRight, CircleAlert } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { DEV_AUTH_BYPASS, startPhoneSignIn } from "../firebase";
+import { DEV_AUTH_BYPASS, authErrorMessage, signInWithEmail, signInWithGoogle } from "../firebase";
 import { DEV_CREATE_USER } from "../graphql/operations";
 
-const RECAPTCHA_CONTAINER_ID = "recaptcha-container";
-
 /**
- * Sign-in screen. Two implementations behind one route, selected by
- * VITE_DEV_AUTH_BYPASS (mirrors the backend's DEV_AUTH_BYPASS):
- *  - dev mode: a display-name box that calls devCreateUser and stores the
- *    returned id as the dev user (no real auth — sandbox/testing only).
- *  - production: real phone + OTP via Firebase Auth, per architecture.md §5.
+ * Sign-in for returning users. New users never see this: they build a plan
+ * at /start first and create their account at the end of it.
  */
 export function SignInPage() {
-  return (
-    <div className="auth-screen">
-      <div className="auth-card">
-        <div className="brand">TrackFit</div>
-        <p className="tagline">Weight, workouts, and progress — in one place.</p>
-        <div className="card">{DEV_AUTH_BYPASS ? <DevSignIn /> : <PhoneSignIn />}</div>
-      </div>
-      <div id={RECAPTCHA_CONTAINER_ID} />
-    </div>
-  );
-}
-
-function DevSignIn() {
+  const navigate = useNavigate();
   const { setDevUserId } = useAuth();
-  const [displayName, setDisplayName] = useState("");
-  const [devCreateUser, { loading, error }] = useMutation<{
-    devCreateUser: { id: string; displayName: string };
-  }>(DEV_CREATE_USER);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!displayName.trim()) return;
-    const result = await devCreateUser({ variables: { displayName: displayName.trim() } });
-    const id = result.data?.devCreateUser?.id;
-    if (id) setDevUserId(id);
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <div className="form-row">
-        <label htmlFor="displayName">Display name</label>
-        <input
-          id="displayName"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="e.g. Kwame"
-          autoFocus
-        />
-      </div>
-      {error && <p className="empty-state">{error.message}</p>}
-      <button type="submit" disabled={loading || !displayName.trim()}>
-        {loading ? "Signing in…" : "Continue (dev mode)"}
-      </button>
-      <p className="empty-state" style={{ marginTop: 12 }}>
-        Dev auth bypass is on — this creates a throwaway test account instead
-        of a real sign-in.
-      </p>
-    </form>
-  );
-}
-
-function PhoneSignIn() {
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [code, setCode] = useState("");
-  const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [devName, setDevName] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [devCreateUser] = useMutation<{ devCreateUser: { id: string } }>(DEV_CREATE_USER);
 
-  async function sendCode(e: FormEvent) {
-    e.preventDefault();
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
     setError(null);
-    setLoading(true);
-    try {
-      const result = await startPhoneSignIn(phoneNumber.trim(), RECAPTCHA_CONTAINER_ID);
-      setConfirmation(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send code");
-    } finally {
-      setLoading(false);
-    }
-  }
+    try { await fn(); navigate("/", { replace: true }); }
+    catch (e) { setError(authErrorMessage(e)); setBusy(false); }
+  };
 
-  async function confirmCode(e: FormEvent) {
+  const onEmail = (e: FormEvent) => { e.preventDefault(); void run(() => signInWithEmail(email.trim(), password)); };
+  const onDev = (e: FormEvent) => {
     e.preventDefault();
-    if (!confirmation) return;
-    setError(null);
-    setLoading(true);
-    try {
-      await confirmation.confirm(code.trim());
-      // onAuthStateChanged in AuthProvider picks up the signed-in user from here.
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Incorrect code");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (confirmation) {
-    return (
-      <form onSubmit={confirmCode}>
-        <div className="form-row">
-          <label htmlFor="otp">Enter the code we texted you</label>
-          <input
-            id="otp"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="123456"
-            autoFocus
-          />
-        </div>
-        {error && <p className="empty-state">{error}</p>}
-        <button type="submit" disabled={loading || !code.trim()}>
-          {loading ? "Verifying…" : "Verify"}
-        </button>
-      </form>
-    );
-  }
+    void run(async () => {
+      const res = await devCreateUser({ variables: { displayName: devName.trim() || "Test athlete" } });
+      if (!res.data) throw new Error("Couldn't create a dev account.");
+      setDevUserId(res.data.devCreateUser.id);
+    });
+  };
 
   return (
-    <form onSubmit={sendCode}>
-      <div className="form-row">
-        <label htmlFor="phone">Phone number</label>
-        <input
-          id="phone"
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          placeholder="+233 55 123 4567"
-          autoFocus
-        />
-      </div>
-      {error && <p className="empty-state">{error}</p>}
-      <button type="submit" disabled={loading || !phoneNumber.trim()}>
-        {loading ? "Sending…" : "Send code"}
-      </button>
-    </form>
+    <div className="app is-plan">
+      <main className="stage">
+        <div className="top"><div className="brand" style={{ display: "flex" }}><span className="brand-mark"><Activity /></span>TrackFit</div></div>
+        <div className="screen-wrap">
+          <section id="screen">
+            <div className="enter">
+              <h1 className="qh">Welcome <mark>back</mark>.</h1>
+              <p className="qs">Sign in to pick up your plan where you left it.</p>
+              <div className="qb">
+                {DEV_AUTH_BYPASS ? (
+                  <form className="auth" onSubmit={onDev}>
+                    <div className="field">
+                      <label htmlFor="f-dev">Display name</label>
+                      <input className="txt" id="f-dev" value={devName} onChange={(e) => setDevName(e.target.value)} placeholder="e.g. Kwame" autoFocus />
+                      <p className="help">Dev auth bypass is on. This creates a throwaway test account instead of a real sign-in.</p>
+                    </div>
+                    <button className="cta" type="submit" disabled={busy}>Continue in dev mode<ArrowRight /></button>
+                  </form>
+                ) : (
+                  <div className="auth">
+                    <button type="button" className="gbtn" disabled={busy} onClick={() => void run(signInWithGoogle)}>
+                      <span className="g" aria-hidden="true">G</span>Continue with Google
+                    </button>
+                    <div className="or">or with email</div>
+                    <form onSubmit={onEmail} style={{ display: "grid", gap: 18 }}>
+                      <div className="field">
+                        <label htmlFor="f-email">Email address</label>
+                        <input className="txt" id="f-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="f-pw">Password</label>
+                        <input className="txt" id="f-pw" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                      </div>
+                      <button className="cta" type="submit" disabled={busy || !email || !password}>Sign in<ArrowRight /></button>
+                    </form>
+                  </div>
+                )}
+                {error && <div className="err" role="alert"><CircleAlert /><span>{error}</span></div>}
+                <p className="help" style={{ marginTop: 24 }}>New to TrackFit? <Link to="/start/welcome">Build your plan first</Link>. It takes about 6 minutes.</p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
   );
 }

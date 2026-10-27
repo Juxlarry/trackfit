@@ -88,6 +88,12 @@ export async function setReminderTime(userId: string, time: string | null) {
   await pool.query(`UPDATE identity.intake_profiles SET reminder_time = $2, updated_at = now() WHERE user_id = $1`, [userId, time]);
 }
 
+/** True when another account already owns this email (users.email is unique). */
+export async function emailTakenByOther(userId: string, email: string): Promise<boolean> {
+  const { rows } = await pool.query(`SELECT 1 FROM identity.users WHERE lower(email) = lower($1) AND id <> $2 LIMIT 1`, [email, userId]);
+  return rows.length > 0;
+}
+
 export async function markOnboarded(db: Db, userId: string, displayName: string | null, email: string | null) {
   await db.query(
     `UPDATE identity.users
