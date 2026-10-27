@@ -2,7 +2,7 @@ import admin from "firebase-admin";
 
 /**
  * Firebase Admin SDK initialization for verifying ID tokens issued by
- * Firebase Authentication (phone+OTP, Facebook — architecture.md §5).
+ * Firebase Authentication (Google + email/password, architecture.md §5 as of v0.6).
  *
  * This only initializes when real Firebase service-account credentials are
  * present. In DEV_AUTH_BYPASS mode (see shared/auth/context.ts) none of this
@@ -37,6 +37,9 @@ export interface VerifiedFirebaseUser {
   phoneNumber?: string;
   email?: string;
   displayName?: string;
+  emailVerified: boolean;
+  /** Firebase sign-in provider, e.g. "google.com", "password", "phone". */
+  signInProvider: string | null;
 }
 
 /** Verifies a Firebase ID token sent by the client and returns its claims. */
@@ -48,5 +51,7 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<VerifiedFi
     phoneNumber: decoded.phone_number,
     email: decoded.email,
     displayName: (decoded.name as string | undefined) ?? decoded.phone_number ?? decoded.email,
+    emailVerified: decoded.email_verified === true,
+    signInProvider: (decoded.firebase?.sign_in_provider as string | undefined) ?? null,
   };
 }

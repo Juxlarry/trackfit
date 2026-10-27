@@ -5,6 +5,8 @@ import { findUserById, type UserRow } from "../../modules/identity/identity.repo
 
 export interface GraphQLContext {
   user: UserRow | null;
+  /** How the caller signed in. Null in dev-bypass mode. */
+  auth?: { emailVerified: boolean; signInProvider: string | null } | null;
 }
 
 const DEV_AUTH_BYPASS = process.env.DEV_AUTH_BYPASS === "true";
@@ -25,7 +27,7 @@ export async function buildContext(headers: IncomingHttpHeaders): Promise<GraphQ
     const devUserId = headers["x-dev-user-id"];
     if (typeof devUserId === "string") {
       const user = await findUserById(devUserId);
-      return { user };
+      return { user, auth: null };
     }
     // No header at all → anonymous request (e.g. introspection); mutations
     // that require a user will reject with UNAUTHENTICATED as normal.
@@ -40,7 +42,7 @@ export async function buildContext(headers: IncomingHttpHeaders): Promise<GraphQ
   const idToken = authHeader.slice("Bearer ".length);
   const verified = await verifyFirebaseIdToken(idToken);
   const user = await getOrCreateUser(verified);
-  return { user };
+  return { user, auth: { emailVerified: verified.emailVerified, signInProvider: verified.signInProvider } };
 }
 
 export function requireUser(context: GraphQLContext): UserRow {
