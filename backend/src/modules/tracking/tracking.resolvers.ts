@@ -1,7 +1,12 @@
 import type { GraphQLContext } from "../../shared/auth/context.js";
 import { requireUser } from "../../shared/auth/context.js";
+import { assertIsoDate } from "../../shared/errors.js";
 import {
   createWorkoutTemplate,
+  deleteActivityLog,
+  findTemplateName,
+  listActivityLogs,
+  listWorkoutSessionsBetween,
   findExerciseById,
   listMilestonesForSession,
   listSetLogsForSession,
@@ -17,7 +22,7 @@ import {
   type WorkoutTemplateExerciseRow,
   type WorkoutTemplateRow,
 } from "./tracking.repository.js";
-import { countSessionsThisWeek, logWeight, logWorkoutSession } from "./tracking.service.js";
+import { countSessionsThisWeek, logActivity, logWeight, logWorkoutSession, type LogActivityInput } from "./tracking.service.js";
 
 // NOTE on N+1 queries below: field resolvers fetch related rows individually
 // (e.g. SetLog.exercise loads one exercise per set). Fine at MVP1 scale/traffic;
@@ -50,6 +55,12 @@ export const trackingResolvers = {
         sessionsThisWeek,
       };
     },
+
+    workoutSessionsBetween: (_p: unknown, args: { from: string; to: string }, ctx: GraphQLContext) =>
+      listWorkoutSessionsBetween(requireUser(ctx).id, assertIsoDate(args.from, "from"), assertIsoDate(args.to, "to")),
+
+    activityLogs: (_p: unknown, args: { from: string; to: string }, ctx: GraphQLContext) =>
+      listActivityLogs(requireUser(ctx).id, assertIsoDate(args.from, "from"), assertIsoDate(args.to, "to")),
   },
 
   Mutation: {
@@ -84,14 +95,24 @@ export const trackingResolvers = {
           durationMinutes?: number | null;
           notes?: string | null;
           shareToClubs?: boolean;
+          startedAt?: string | null;
           sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number }[];
         };
       },
       ctx: GraphQLContext,
     ) => {
-      const result = await logWorkoutSession({ userId: requireUser(ctx).id, ...args.input });
+      const { startedAt, ...rest } = args.input;
+      const result = await logWorkoutSession({
+        userId: requireUser(ctx).id, ...rest, startedAt: startedAt ? new Date(startedAt) : null,
+      });
       return result.session;
     },
+
+    logActivity: (_p: unknown, args: { input: Omit<LogActivityInput, "userId"> }, ctx: GraphQLContext) =>
+      logActivity({ ...args.input, userId: requireUser(ctx).id }),
+
+    deleteActivity: (_p: unknown, args: { id: string }, ctx: GraphQLContext) =>
+      deleteActivityLog(requireUser(ctx).id, args.id),
   },
 
   // GraphQL's default String scalar coerces a Date via .valueOf() (epoch ms)
@@ -112,6 +133,10 @@ export const trackingResolvers = {
 
   WorkoutSession: {
     startedAt: (parent: WorkoutSessionRow) => parent.startedAt.toISOString(),
+    templateName: (parent: WorkoutSessionRow) => (parent.templateId ? findTemplateName(parent.templateId) : null),
+    setCount: async (parent: WorkoutSessionRow) => (await listSetLogsForSession(parent.id)).length,
+    volumeKg: async (parent: WorkoutSessionRow) =>
+      Math.round((await listSetLogsForSession(parent.id)).reduce((a, s) => a + s.weightKg * s.reps, 0)),
     sets: (parent: WorkoutSessionRow) => listSetLogsForSession(parent.id),
     milestones: (parent: WorkoutSessionRow) => listMilestonesForSession(parent.id),
   },

@@ -260,6 +260,77 @@ export async function listWorkoutHistory(
   return rows.map(mapSession);
 }
 
+/** Sessions whose start falls on [fromIso, toIso] (inclusive, UTC dates). */
+export async function listWorkoutSessionsBetween(userId: string, fromIso: string, toIso: string): Promise<WorkoutSessionRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM tracking.workout_sessions
+     WHERE user_id = $1 AND started_at >= $2::date AND started_at < ($3::date + 1)
+     ORDER BY started_at`,
+    [userId, fromIso, toIso],
+  );
+  return rows.map(mapSession);
+}
+
+export async function findTemplateName(templateId: string): Promise<string | null> {
+  const { rows } = await pool.query(`SELECT name FROM tracking.workout_templates WHERE id = $1`, [templateId]);
+  return rows[0]?.name ?? null;
+}
+
+export async function templateBelongsToUser(templateId: string, userId: string): Promise<boolean> {
+  const { rows } = await pool.query(`SELECT 1 FROM tracking.workout_templates WHERE id = $1 AND user_id = $2`, [templateId, userId]);
+  return rows.length > 0;
+}
+
+// ── Activities (cardio, sport, warm-up, mobility, abs) ─────────────────────
+
+export interface ActivityLogRow {
+  id: string;
+  userId: string;
+  performedOn: string;
+  kind: string;
+  activityType: string;
+  durationMinutes: number;
+  distanceKm: number | null;
+  kcal: number | null;
+  kcalEstimated: boolean;
+  avgHeartRate: number | null;
+  effort: string | null;
+  createdAt: Date;
+}
+
+function mapActivity(r: any): ActivityLogRow {
+  return {
+    id: r.id, userId: r.user_id, performedOn: r.performed_on, kind: r.kind, activityType: r.activity_type,
+    durationMinutes: r.duration_minutes, distanceKm: r.distance_km == null ? null : Number(r.distance_km),
+    kcal: r.kcal, kcalEstimated: r.kcal_estimated, avgHeartRate: r.avg_heart_rate, effort: r.effort, createdAt: r.created_at,
+  };
+}
+
+const ACTIVITY_COLUMNS = `id, user_id, to_char(performed_on,'YYYY-MM-DD') AS performed_on, kind, activity_type, duration_minutes,
+  distance_km, kcal, kcal_estimated, avg_heart_rate, effort, created_at`;
+
+export async function insertActivityLog(a: Omit<ActivityLogRow, "id" | "createdAt">): Promise<ActivityLogRow> {
+  const { rows } = await pool.query(
+    `INSERT INTO tracking.activity_logs (user_id, performed_on, kind, activity_type, duration_minutes, distance_km, kcal, kcal_estimated, avg_heart_rate, effort)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ${ACTIVITY_COLUMNS}`,
+    [a.userId, a.performedOn, a.kind, a.activityType, a.durationMinutes, a.distanceKm, a.kcal, a.kcalEstimated, a.avgHeartRate, a.effort],
+  );
+  return mapActivity(rows[0]);
+}
+
+export async function listActivityLogs(userId: string, fromIso: string, toIso: string): Promise<ActivityLogRow[]> {
+  const { rows } = await pool.query(
+    `SELECT ${ACTIVITY_COLUMNS} FROM tracking.activity_logs WHERE user_id = $1 AND performed_on BETWEEN $2 AND $3 ORDER BY performed_on, created_at`,
+    [userId, fromIso, toIso],
+  );
+  return rows.map(mapActivity);
+}
+
+export async function deleteActivityLog(userId: string, id: string): Promise<boolean> {
+  const { rowCount } = await pool.query(`DELETE FROM tracking.activity_logs WHERE id = $1 AND user_id = $2`, [id, userId]);
+  return (rowCount ?? 0) > 0;
+}
+
 export async function listSetLogsForSession(sessionId: string): Promise<SetLogRow[]> {
   const { rows } = await pool.query(
     `SELECT * FROM tracking.set_logs WHERE session_id = $1 ORDER BY set_number`,
@@ -313,6 +384,8 @@ export interface LogWorkoutSessionInput {
   durationMinutes?: number | null;
   notes?: string | null;
   shareToClubs?: boolean;
+  /** MVP 2: lets "Log it" record a missed planned session on its own day. Defaults to now. */
+  startedAt?: Date | null;
   sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number | null }[];
 }
 
@@ -336,8 +409,8 @@ export async function logWorkoutSessionWithMilestones(
     await client.query("BEGIN");
 
     const { rows: sessionRows } = await client.query(
-      `INSERT INTO tracking.workout_sessions (user_id, template_id, duration_minutes, notes, share_to_clubs)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO tracking.workout_sessions (user_id, template_id, duration_minutes, notes, share_to_clubs, started_at)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()))
        RETURNING *`,
       [
         input.userId,
@@ -345,6 +418,7 @@ export async function logWorkoutSessionWithMilestones(
         input.durationMinutes ?? null,
         input.notes ?? null,
         input.shareToClubs ?? false,
+        input.startedAt ?? null,
       ],
     );
     const session = mapSession(sessionRows[0]);

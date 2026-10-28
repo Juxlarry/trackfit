@@ -1,6 +1,7 @@
 // TrackFit backend — Prisma schema
-// MVP 1 scope: Identity + Tracking modules only (per architecture.md §3, §0.1).
-// Nutrition/Goals/Social/Notifications tables are added when their phase starts.
+// MVP 1: Identity + Tracking. MVP 2 (sql/002_mvp2.sql) adds intake + screening
+// (Identity), generated programs + activities (Tracking) and the first Nutrition
+// tables. Goals/Social/Notifications are added when their phase starts.
 //
 // Modules are kept in separate Postgres schemas (the "separate schema per module"
 // guardrail from architecture.md §3) so an accidental cross-module join requires
@@ -14,7 +15,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["identity", "tracking"]
+  schemas  = ["identity", "tracking", "nutrition"]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -38,8 +39,16 @@ model User {
   units       UnitsPreference @default(METRIC)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  onboardedAt DateTime?
 
   weightEntries    WeightEntry[]
+  healthScreening  HealthScreening?
+  intakeProfile    IntakeProfile?
+  dietaryProfile   DietaryProfile?
+  programs         GeneratedProgram[]
+  nutritionPlans   NutritionPlan[]
+  mealEntries      MealEntry[]
+  activityLogs     ActivityLog[]
   workoutTemplates WorkoutTemplate[]
   workoutSessions  WorkoutSession[]
   customExercises  Exercise[]
@@ -91,6 +100,8 @@ model Exercise {
   equipment    String?
   isCustom     Boolean     @default(false)
   ownerId      String?
+  /// Movement pattern used for form illustrations and load suggestions (MVP 2).
+  pattern      String?
   createdAt    DateTime    @default(now())
 
   owner      User?               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -107,8 +118,16 @@ model WorkoutTemplate {
   userId    String
   name      String
   createdAt DateTime @default(now())
+  /// MVP 2: generated programs reuse this model (spec §4.3 note).
+  isGenerated Boolean  @default(false)
+  programId   String?
+  weekday     Int?     @db.SmallInt
+  sessionType String?
+  isActive    Boolean  @default(true)
+  warmup      Json     @default("[]")
 
   user      User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program   GeneratedProgram?           @relation(fields: [programId], references: [id], onDelete: Cascade)
   exercises WorkoutTemplateExercise[]
   sessions  WorkoutSession[]
 
@@ -125,6 +144,9 @@ model WorkoutTemplateExercise {
   order            Int
   targetSets       Int
   targetReps       Int
+  repRange         String?
+  /// Exercise this one replaced because of an injury (MVP 2).
+  replaces         String?
 
   template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   exercise Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
@@ -198,4 +220,192 @@ model Milestone {
   @@index([exerciseId])
   @@schema("tracking")
   @@map("milestones")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MVP 2: guided onboarding + generated plans (spec §4.8, sql/002_mvp2.sql)
+// Enumerated text columns are CHECK-constrained in SQL; see the engine types
+// in src/modules/planning/engine/types.ts for the allowed values.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Only the boolean gate flags, never free-text medical detail (spec §6).
+model HealthScreening {
+  userId                String   @id
+  heartCondition        Boolean
+  highBloodPressure     Boolean
+  diabetes              Boolean
+  pregnant              Boolean
+  recentSurgeryOrInjury Boolean
+  chestPainOrDizziness  Boolean
+  under18               Boolean
+  screenedOut           Boolean
+  screenedAt            DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("identity")
+  @@map("health_screenings")
+}
+
+model IntakeProfile {
+  userId          String   @id
+  sex             String
+  age             Int      @db.SmallInt
+  heightCm        Float
+  weightKg        Float
+  bodyFatLevel    Int?     @db.SmallInt
+  goalType        String
+  targetWeightKg  Float?
+  goalPace        String?
+  motivations     String[]
+  experience      String
+  liftComfort     String
+  equipment       String
+  availableDays   Int[]    @db.SmallInt
+  daysPerWeek     Int      @db.SmallInt
+  sessionMinutes  Int      @db.SmallInt
+  splitPreference String
+  fullBodyDay     Boolean  @default(false)
+  priorityMuscles String[]
+  injuries        String[]
+  injuryNote      String?
+  cardioFrequency String?
+  cardioLikes     String[]
+  activityLevel   String
+  sleepHours      Float
+  sleepQuality    String?
+  trainTime       String?
+  busyness        String?
+  warmup          Boolean  @default(true)
+  energy          String?
+  blockers        String[]
+  mindset         Json     @default("{}")
+  reminderTime    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("identity")
+  @@map("intake_profiles")
+}
+
+model GeneratedProgram {
+  id             String   @id @default(uuid())
+  userId         String
+  cycleNumber    Int      @default(1)
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
+  status         String   @default("ACTIVE")
+  /// The ±1 training-day rule is anchored to this value.
+  onboardingDays Int      @db.SmallInt
+  daysPerWeek    Int      @db.SmallInt
+  splitLabel     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates WorkoutTemplate[]
+
+  @@schema("tracking")
+  @@map("generated_programs")
+}
+
+model ActivityLog {
+  id              String   @id @default(uuid())
+  userId          String
+  performedOn     DateTime @db.Date
+  kind            String
+  activityType    String
+  durationMinutes Int
+  distanceKm      Float?
+  kcal            Int?
+  kcalEstimated   Boolean  @default(true)
+  avgHeartRate    Int?
+  effort          String?
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, performedOn])
+  @@schema("tracking")
+  @@map("activity_logs")
+}
+
+model DietaryProfile {
+  userId           String   @id
+  dietPattern      String
+  allergies        String[]
+  dislikes         String   @default("")
+  favouriteDishes  String[]
+  mealPattern      String
+  prepStyle        String?
+  fasting          String   @default("NO")
+  calorieAwareness String?
+  proteinAwareness String?
+  struggles        String[]
+  updatedAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("nutrition")
+  @@map("dietary_profiles")
+}
+
+/// Custom-seeded local recipe layer (spec §9.4); generated from the engine catalogue.
+model Recipe {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  dish         String
+  name         String
+  slot         String
+  kcal         Int
+  proteinG     Int
+  carbsG       Int
+  fatG         Int
+  diets        String[]
+  allergens    String[]
+  portionGuide String
+  isLocal      Boolean  @default(false)
+  source       String   @default("custom-seeded")
+
+  mealEntries MealEntry[]
+
+  @@schema("nutrition")
+  @@map("recipes")
+}
+
+model NutritionPlan {
+  id          String   @id @default(uuid())
+  userId      String
+  cycleNumber Int      @default(1)
+  dailyKcal   Int
+  proteinG    Int
+  carbsG      Int
+  fatG        Int
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("nutrition")
+  @@map("nutrition_plans")
+}
+
+/// A planned meal the user ticked as eaten and/or swapped. Untouched slots are computed.
+model MealEntry {
+  userId    String
+  entryDate DateTime @db.Date
+  slotIndex Int      @db.SmallInt
+  recipeKey String?
+  eaten     Boolean  @default(false)
+  updatedAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe? @relation(fields: [recipeKey], references: [key], onDelete: SetNull)
+
+  @@id([userId, entryDate, slotIndex])
+  @@schema("nutrition")
+  @@map("meal_entries")
 }

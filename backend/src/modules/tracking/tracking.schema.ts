@@ -67,6 +67,12 @@ export const trackingTypeDefs = /* GraphQL */ `
 
   type WorkoutSession {
     id: ID!
+    "The template (manual or generated) this session was done from."
+    templateId: ID
+    templateName: String
+    setCount: Int!
+    "Sum of weight x reps across all sets, in kg."
+    volumeKg: Float!
     startedAt: String!
     durationMinutes: Int
     notes: String
@@ -113,7 +119,39 @@ export const trackingTypeDefs = /* GraphQL */ `
     durationMinutes: Int
     notes: String
     shareToClubs: Boolean
+    "ISO date-time. Lets a missed planned session be logged on its own day. Defaults to now."
+    startedAt: String
     sets: [SetLogInput!]!
+  }
+
+  enum ActivityKind { CARDIO SPORT WARMUP MOBILITY ABS }
+  enum Effort { EASY MODERATE HARD }
+
+  type ActivityLog {
+    id: ID!
+    "YYYY-MM-DD"
+    performedOn: String!
+    kind: ActivityKind!
+    "WALK, RUN, CYCLE, SWIM, HIKE, ROW, SKIP, FOOTBALL, BASKETBALL, DANCE, WARMUP, MOBILITY, ABS"
+    activityType: String!
+    durationMinutes: Int!
+    distanceKm: Float
+    kcal: Int
+    "True when calories were estimated from MET x weight x time x effort rather than entered."
+    kcalEstimated: Boolean!
+    avgHeartRate: Int
+    effort: Effort
+  }
+
+  input LogActivityInput {
+    performedOn: String!
+    activityType: String!
+    durationMinutes: Int!
+    distanceKm: Float
+    "From a watch. Leave empty to estimate."
+    kcal: Int
+    avgHeartRate: Int
+    effort: Effort
   }
 
   extend type Query {
@@ -122,11 +160,16 @@ export const trackingTypeDefs = /* GraphQL */ `
     workoutTemplates: [WorkoutTemplate!]!
     workoutHistory(limit: Int = 20): [WorkoutSession!]!
     dashboard: Dashboard!
+    "Sessions started between two dates (YYYY-MM-DD, inclusive)."
+    workoutSessionsBetween(from: String!, to: String!): [WorkoutSession!]!
+    activityLogs(from: String!, to: String!): [ActivityLog!]!
   }
 
   extend type Mutation {
     logWeight(input: LogWeightInput!): WeightEntry!
     createWorkoutTemplate(input: CreateWorkoutTemplateInput!): WorkoutTemplate!
     logWorkoutSession(input: LogWorkoutSessionInput!): WorkoutSession!
+    logActivity(input: LogActivityInput!): ActivityLog!
+    deleteActivity(id: ID!): Boolean!
   }
 `;

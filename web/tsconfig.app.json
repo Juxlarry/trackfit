@@ -15,12 +15,15 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "paths": { "@engine": ["../backend/src/modules/planning/engine/index.ts"] },
 
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
+    "strict": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src", "../backend/src/modules/planning/engine/*.ts"],
+  "exclude": ["../backend/src/modules/planning/engine/*.test.ts"]
 }

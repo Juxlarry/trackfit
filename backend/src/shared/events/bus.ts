@@ -20,6 +20,9 @@ export type DomainEvent =
       shareToClubs: boolean;
       milestoneIds: string[];
     }
+  | { type: "ActivityLogged"; userId: string; activityLogId: string; kind: string; durationMinutes: number; kcal: number }
+  | { type: "PlanGenerated"; userId: string; programId: string; cycleNumber: number; daysPerWeek: number }
+  | { type: "TrainingDaysChanged"; userId: string; programId: string; from: number; to: number }
   | {
       type: "MilestoneAchieved";
       userId: string;
@@ -48,7 +51,7 @@ class DomainEventBus extends EventEmitter {
 
 export const eventBus = new DomainEventBus();
 
-// MVP1 has no Goals/Social/Notifications modules yet to subscribe to these —
+// MVP1/2 have no Goals/Social/Notifications modules yet to subscribe to these —
 // this listener just makes the event flow visible in logs until they exist.
 eventBus.on("*", (event: DomainEvent) => {
   // eslint-disable-next-line no-console

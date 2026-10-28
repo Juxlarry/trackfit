@@ -11,6 +11,8 @@ interface AuthState {
   devUserId: string | null;
   setDevUserId: (id: string | null) => void;
   signOutDev: () => void;
+  /** Signs out of whichever auth mode is active. */
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -52,8 +54,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setDevUserId(null);
   }
 
+  async function signOut() {
+    if (DEV_AUTH_BYPASS) signOutDev();
+    else await getFirebaseAuth().signOut();
+  }
+
   return (
-    <AuthContext.Provider value={{ ready, firebaseUser, devUserId, setDevUserId, signOutDev }}>
+    <AuthContext.Provider value={{ ready, firebaseUser, devUserId, setDevUserId, signOutDev, signOut }}>
       {children}
     </AuthContext.Provider>
   );
