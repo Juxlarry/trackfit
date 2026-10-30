@@ -181,9 +181,10 @@ export const PLAN_FIELDS = gql`
     }
     restDays { weekday suggestion }
     adaptations { icon text }
+    scheduleSwaps { weekStart dayA dayB }
     profile {
       goal targetWeightKg startWeightKg heightCm sessionMinutes sleepHours equipment experience warmup cardioLikes
-      priorityMuscles reminderTime dietPattern allergies mealPattern fasting prep favouriteDishes
+      priorityMuscles lowPriorityMuscles reminderTime dietPattern allergies mealPattern fasting prep favouriteDishes
     }
   }
 `;
@@ -214,6 +215,16 @@ export const SET_TRAINING_DAYS = gql`
 
 export const SET_START_DATE = gql`
   mutation SetStartDate($date: String!) { setStartDate(date: $date) { ...PlanFields } }
+  ${PLAN_FIELDS}
+`;
+
+export const SWAP_SESSION_DAYS = gql`
+  mutation SwapSessionDays($dateA: String!, $dateB: String!) { swapSessionDays(dateA: $dateA, dateB: $dateB) { ...PlanFields } }
+  ${PLAN_FIELDS}
+`;
+
+export const RESET_WEEK_SCHEDULE = gql`
+  mutation ResetWeekSchedule($date: String!) { resetWeekSchedule(date: $date) { ...PlanFields } }
   ${PLAN_FIELDS}
 `;
 

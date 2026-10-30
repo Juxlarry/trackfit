@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import {
   FAVOURITE_DISHES, PACE_RATE, buildWeek, computeProjection, computeTargets, splitLabel, splitTypes, targetWeightIssue,
+  type PriorityMuscle,
 } from "@engine";
 import { ChipGroup, OptionList, toggleIn, type Opt } from "../components/ui/Options";
 import { Measure } from "../components/ui/Measure";
@@ -50,6 +51,10 @@ const i = (n: number) => ({ "--i": n }) as CSSProperties;
 const M = ({ children }: { children: ReactNode }) => <mark>{children}</mark>;
 const Note = ({ icon: Icon = Info, children }: { icon?: typeof Info; children: ReactNode }) => <div className="note"><Icon /><span>{children}</span></div>;
 const Q = ({ children }: { children: ReactNode }) => <p style={{ fontWeight: 600, margin: "26px 0 10px" }}>{children}</p>;
+const MUSCLE_OPTS: Opt<PriorityMuscle>[] = [
+  { value: "CHEST", label: "Chest" }, { value: "BACK", label: "Back" }, { value: "SHOULDERS", label: "Shoulders" },
+  { value: "ARMS", label: "Arms" }, { value: "GLUTES", label: "Glutes" }, { value: "LEGS", label: "Legs" },
+];
 const lossOrGain = (d: Draft) => d.goal === "LOSE_FAT" || d.goal === "BUILD_MUSCLE";
 
 export const kgFmt = (d: Pick<Draft, "weightUnit">) => (kg: number) =>
@@ -487,10 +492,19 @@ export const STEPS: Step[] = [
     title: () => <>Any muscles you want to <M>prioritise</M>?</>,
     sub: () => "Pick up to 2. They get extra sets, placed early in the session when you're fresh.",
     body: (c) => multi(c, "priorityMuscles", [
-      { value: "CHEST", label: "Chest" }, { value: "BACK", label: "Back" }, { value: "SHOULDERS", label: "Shoulders" }, { value: "ARMS", label: "Arms" },
-      { value: "GLUTES", label: "Glutes" }, { value: "LEGS", label: "Legs" }, { value: "CORE", label: "Abs & core" }, { value: "EVEN", label: "Everything evenly" },
+      ...MUSCLE_OPTS, { value: "CORE", label: "Abs & core" }, { value: "EVEN", label: "Everything evenly" },
     ], { max: 2, none: "EVEN", chips: true }),
     valid: (d) => d.priorityMuscles.length > 0,
+  },
+  {
+    id: "low-priority", stage: 2,
+    title: () => <>Any muscles you <M>don't</M> want to prioritise?</>,
+    sub: () => "Pick up to 2. Your main lifts still train them, with fewer sets and no extra isolation moves. Abs & core stay in every session.",
+    body: (c) => multi(c, "lowPriorityMuscles", [
+      ...MUSCLE_OPTS.map((o) => ({ ...o, disabled: c.d.priorityMuscles.includes(o.value) })),
+      { value: "NONE", label: "No, train everything normally" },
+    ], { max: 2, none: "NONE", chips: true }),
+    valid: (d) => d.lowPriorityMuscles.some((m) => m === "NONE" || !d.priorityMuscles.includes(m)),
   },
   {
     id: "injuries", stage: 2,

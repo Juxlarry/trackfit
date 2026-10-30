@@ -64,7 +64,7 @@ export function ChipGroup<T extends string | number>({ options, selected, onPick
         const Icon = o.icon;
         return (
           <button key={String(o.value)} type="button" className={`chip${on ? " on" : ""}`} style={idx(i)}
-            role={multi ? "checkbox" : "radio"} aria-checked={on} onClick={() => onPick(o.value)}>
+            role={multi ? "checkbox" : "radio"} aria-checked={on} disabled={o.disabled} onClick={() => onPick(o.value)}>
             {Icon && <Icon />}
             {o.label}
           </button>

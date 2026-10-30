@@ -1,4 +1,4 @@
-import { addDaysIso, daysBetween, mondayOf, weekdayOf } from "@engine";
+import { addDaysIso, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap } from "@engine";
 import type { ActivePlanDto, PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
 import { readJson, writeJson } from "../lib/storage";
 
@@ -10,8 +10,18 @@ export function localDateOf(ts: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Day swaps made for the week containing a date. */
+export const swapsFor = (plan: ActivePlanDto, iso: string): DaySwap[] =>
+  plan.scheduleSwaps.filter((s) => s.weekStart === mondayOf(iso)).map((s) => [s.dayA, s.dayB]);
+
+/** The plan weekday whose session falls on this date, after this week's swaps. */
+export const plannedWeekdayOn = (plan: ActivePlanDto, iso: string) => swappedOrder(swapsFor(plan, iso))[weekdayOf(iso)];
+
 export const sessionOn = (plan: ActivePlanDto, iso: string): PlannedSessionDto | undefined =>
-  plan.sessions.find((s) => s.weekday === weekdayOf(iso));
+  plan.sessions.find((s) => s.weekday === plannedWeekdayOn(plan, iso));
+
+/** True when this week's swaps moved a different session onto this date. */
+export const isMoved = (plan: ActivePlanDto, iso: string) => plannedWeekdayOn(plan, iso) !== weekdayOf(iso);
 
 /** First planned session on or after a date. */
 export function firstSessionFrom(plan: ActivePlanDto, iso: string): { session: PlannedSessionDto; date: string; offset: number } {

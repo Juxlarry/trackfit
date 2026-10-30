@@ -5,6 +5,7 @@ import type {
   Equipment,
   Injury,
   MovementPattern,
+  PriorityMuscle,
   Recipe,
   SessionType,
   WarmupItem,
@@ -146,6 +147,19 @@ export function exerciseMeta(name: string): { muscleGroup: DbMuscleGroup; equipm
     /barbell|bench press|back squat|romanian deadlift|overhead press|ez-bar|landmine|hip thrust|box squat/i.test(name) ? "Barbell" :
     "Bodyweight";
   return { muscleGroup, equipment, pattern };
+}
+
+/** The onboarding muscle choice (priority or low priority) an exercise mainly trains. */
+export function targetMuscle(name: string): PriorityMuscle | null {
+  const g = exerciseMeta(name).muscleGroup;
+  if (g === "BICEPS" || g === "TRICEPS") return "ARMS";
+  return g === "CHEST" || g === "BACK" || g === "SHOULDERS" || g === "GLUTES" || g === "LEGS" || g === "CORE" ? g : null;
+}
+const ISOLATION_PATTERNS: MovementPattern[] = ["curl", "pushdown", "raise", "legext", "calf"];
+/** Single-joint accessory work, the first thing cut for a low-priority muscle. */
+export function isIsolation(name: string): boolean {
+  const p = patternOf(name);
+  return (p != null && ISOLATION_PATTERNS.includes(p)) || /fly|rear-delt|face pull|pull-apart/i.test(name);
 }
 
 /** Every exercise name the generator can output (used to seed tracking.exercises). */

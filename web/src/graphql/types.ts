@@ -35,6 +35,8 @@ export interface ActivePlanDto {
   sessions: PlannedSessionDto[];
   restDays: { weekday: number; suggestion: string }[];
   adaptations: Adaptation[];
+  /** Day swaps per week (weekStart = Monday), in the order made. */
+  scheduleSwaps: { weekStart: string; dayA: number; dayB: number }[];
   profile: {
     goal: string;
     targetWeightKg: number | null;
@@ -47,6 +49,7 @@ export interface ActivePlanDto {
     warmup: boolean;
     cardioLikes: string[];
     priorityMuscles: string[];
+    lowPriorityMuscles: string[];
     reminderTime: string | null;
     dietPattern: DietPattern;
     allergies: Allergen[];

@@ -34,7 +34,7 @@ const { typeDefs, resolvers } = await import("./graphql/schema.js");
 const { pool } = await import("./shared/db/pool.js");
 const { ConsoleMailer, setMailer } = await import("./shared/email/mailer.js");
 const { findUserById } = await import("./modules/identity/identity.repository.js");
-const { addDaysIso, toIsoDate } = await import("./modules/planning/engine/index.js");
+const { addDaysIso, mondayOf, swapIssue, toIsoDate, weekTypes, weekdayOf } = await import("./modules/planning/engine/index.js");
 
 const mailer = new ConsoleMailer();
 setMailer(mailer);
@@ -148,6 +148,40 @@ test("±1 training days: regenerates the week and calories, rejects out of range
   assert.equal(down.setTrainingDays.sessions.length, 3);
   const { rows } = await pool.query(`SELECT count(*)::int AS n FROM tracking.workout_templates WHERE user_id = $1 AND is_generated AND is_active`, [jay]);
   assert.equal(rows[0].n, 3, "old templates deactivated, not deleted");
+});
+
+test("weekly day swaps reorder this week only, within limits", async (t) => {
+  const id = await newUser("Swapper");
+  const sixDays = { ...training, availableDays: [0, 1, 2, 3, 4, 5, 6], daysPerWeek: 6, split: "MUSCLE_FOCUS", fullBodyDay: false, lowPriorityMuscles: ["ARMS"] };
+  await ok(ONBOARD, { i: { screening: screeningClear, training: sixDays, diet, startDate: today } }, id);
+  const plan = (await ok(`{ myPlan { sessions { weekday type } scheduleSwaps { weekStart } profile { lowPriorityMuscles } } }`, {}, id)).myPlan;
+  assert.deepEqual(plan.profile.lowPriorityMuscles, ["ARMS"]);
+  assert.deepEqual(plan.scheduleSwaps, []);
+
+  const SWAP = `mutation($a:String!,$b:String!){ swapSessionDays(dateA:$a,dateB:$b){ scheduleSwaps { weekStart dayA dayB } } }`;
+  const nextMonday = addDaysIso(mondayOf(today), 7);
+  const later = await gql(SWAP, { a: nextMonday, b: addDaysIso(nextMonday, 1) }, id);
+  assert.match(later.errors?.[0].message, /only rearrange this week/);
+
+  // A valid pair among this week's remaining days (none left late on a Sunday).
+  const types = weekTypes(plan.sessions);
+  const left = [0, 1, 2, 3, 4, 5, 6].filter((d) => d >= weekdayOf(today));
+  const pair = left.flatMap((a) => left.map((b) => [a, b])).find(([a, b]) => a < b && !swapIssue(types, [], a, b));
+  if (!pair) { t.skip("no swappable pair left this week"); return; }
+  const date = (d: number) => addDaysIso(mondayOf(today), d);
+  const swapped = await ok(SWAP, { a: date(pair[0]), b: date(pair[1]) }, id);
+  assert.deepEqual(swapped.swapSessionDays.scheduleSwaps, [{ weekStart: mondayOf(today), dayA: pair[0], dayB: pair[1] }]);
+  const rest = types.findIndex((x) => x === null);
+  if (rest >= weekdayOf(today)) {
+    const toRest = await gql(SWAP, { a: date(pair[0]), b: date(rest) }, id);
+    assert.match(toRest.errors?.[0].message, /Rest days stay/);
+  }
+
+  const reset = await ok(`mutation($d:String!){ resetWeekSchedule(date:$d){ scheduleSwaps { weekStart } } }`, { d: today }, id);
+  assert.deepEqual(reset.resetWeekSchedule.scheduleSwaps, []);
+  await ok(SWAP, { a: date(pair[0]), b: date(pair[1]) }, id);
+  const fewer = await ok(`mutation{ setTrainingDays(days:5){ scheduleSwaps { weekStart } } }`, {}, id);
+  assert.deepEqual(fewer.setTrainingDays.scheduleSwaps, [], "a new week shape clears swaps");
 });
 
 test("start date and reminder", async () => {

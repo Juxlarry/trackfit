@@ -1,10 +1,10 @@
 import {
   ACTIVITY_TYPES, CARDIO_LIKE_TO_TYPE, CORE, POOL, RECIPES, SESSION_NAMES, SWAPS,
-  equipmentClass, isCoreExercise, patternOf, warmupFor,
+  equipmentClass, isCoreExercise, isIsolation, patternOf, targetMuscle, warmupFor,
 } from "./catalog.js";
 import type {
   Adaptation, DayMenu, DietInput, Effort, GeneratedPlan, HealthScreening, MealPattern, MealSlot,
-  MenuItem, Pace, PlannedExercise, PlannedSession, Projection, Recipe, SessionType, Targets,
+  MenuItem, Pace, PlannedExercise, PlannedSession, PriorityMuscle, Projection, Recipe, SessionType, Targets,
   TrainingInput, WeekPlan,
 } from "./types.js";
 
@@ -176,7 +176,8 @@ export function exerciseCount(i: Pick<TrainingInput, "sessionMinutes" | "warmup"
 const SEED: Record<SessionType, number> = { UPPER: 0, LOWER: 1, PUSH: 2, PULL: 3, LEGS: 1, FULL: 2 };
 export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0): PlannedExercise[] {
   const cls = equipmentClass(i.equipment);
-  const list = POOL[cls][type].slice(0, exerciseCount(i));
+  const pool = POOL[cls][type];
+  const list = pool.slice(0, exerciseCount(i));
   const core = CORE[cls].filter((c) => !list.includes(c));
   const seed = SEED[type];
   if (!list.some(isCoreExercise)) list[list.length - 1] = core[seed % core.length];
@@ -184,6 +185,36 @@ export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0)
     const extra = core.filter((c) => !list.includes(c));
     if (extra.length) list.push(extra[seed % extra.length]);
   }
+
+  const focus: PriorityMuscle[] = i.priorityMuscles.filter((m) => m !== "CORE");
+  const isFocus = (x: string) => { const m = targetMuscle(x); return m != null && focus.includes(m); };
+  const isLow = (x: string) => { const m = targetMuscle(x); return m != null && i.lowPriorityMuscles.includes(m); };
+  const spare = () => pool.filter((x) => !list.includes(x) && !isCoreExercise(x));
+  // Low-priority muscles lose their isolation work (big lifts still train them).
+  // The slot goes to the next exercise in the pool, a priority one if there is one.
+  list.forEach((x, k) => {
+    if (!isLow(x) || !isIsolation(x)) return;
+    const options = spare().filter((y) => !isLow(y));
+    const pick = options.find(isFocus) ?? options[0];
+    if (pick) list[k] = pick;
+  });
+  // A priority muscle this session can train always gets an exercise.
+  for (const m of focus) {
+    if (list.some((x) => targetMuscle(x) === m)) continue;
+    const pick = spare().find((y) => targetMuscle(y) === m);
+    if (!pick) continue;
+    // Replace isolation work first, never the opening lift, core or other priority work.
+    const replaceable = (k: number) => k > 0 && !isCoreExercise(list[k]) && !isFocus(list[k]);
+    let k = list.length - 1;
+    while (k > 0 && !(replaceable(k) && isIsolation(list[k]))) k--;
+    if (k === 0) { k = list.length - 1; while (k > 0 && !replaceable(k)) k--; }
+    if (k > 0) list[k] = pick;
+  }
+  // Priority work first while you're fresh; core closes the session.
+  const rank = (x: string) => (isCoreExercise(x) ? 2 : isFocus(x) ? 0 : 1);
+  list.sort((a, b) => rank(a) - rank(b));
+
+  let boosted = 0; // the extra set goes to the first two priority exercises only
   return list.map((orig) => {
     let name = orig;
     let swapped = false;
@@ -192,7 +223,8 @@ export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0)
       if (to) { name = to; swapped = true; }
     }
     const core = isCoreExercise(name);
-    const sets = i.experience === "NEW" ? 2 : slotIndex < 2 ? 4 : 3;
+    const baseSets = i.experience === "NEW" ? 2 : slotIndex < 2 ? 4 : 3;
+    const sets = core ? baseSets : isFocus(orig) && boosted++ < 2 ? baseSets + 1 : isLow(orig) ? Math.max(2, baseSets - 1) : baseSets;
     const compound = /squat|deadlift|press|row|pulldown|pull-up|thrust/i.test(name) && !core;
     const reps = /plank|hollow/i.test(name) ? "30-45 s" : compound && slotIndex < 2 ? "6-10" : "10-15";
     return { name, pattern: patternOf(name), sets, reps, isCore: core, swapped, replaces: swapped ? orig : null };
@@ -245,6 +277,54 @@ export function estimateActivityKcal(type: string, minutes: number, weightKg: nu
   if (!t || minutes <= 0) return 0;
   const mult = { EASY: 0.8, MODERATE: 1, HARD: 1.2 }[effort];
   return Math.round((t.met * mult * weightKg * minutes) / 60);
+}
+
+// ── Weekly day swaps ──────────────────────────────────────────────────
+// A user can swap the sessions on two training days for one week. Only the
+// order changes: the same sessions, on the same set of days, and next week
+// goes back to the plan.
+
+export const MAX_WEEKLY_SWAPS = 2;
+export type DaySwap = [number, number];
+
+/** After applying swaps in order: for each weekday, the plan weekday whose session it now holds. */
+export function swappedOrder(swaps: DaySwap[]): number[] {
+  const order = [0, 1, 2, 3, 4, 5, 6];
+  for (const [a, b] of swaps) [order[a], order[b]] = [order[b], order[a]];
+  return order;
+}
+
+/** Session type per weekday (null = rest day). */
+export function weekTypes(sessions: { weekday: number; type: string }[]): (SessionType | null)[] {
+  return [0, 1, 2, 3, 4, 5, 6].map((d) => (sessions.find((s) => s.weekday === d)?.type as SessionType | undefined) ?? null);
+}
+
+const REGIONS: Record<SessionType, string[]> = {
+  UPPER: ["push", "pull"], PUSH: ["push"], PULL: ["pull"], LOWER: ["legs"], LEGS: ["legs"], FULL: ["push", "pull", "legs"],
+};
+/** Back-to-back days whose sessions train the same muscles. */
+function clashes(types: (SessionType | null)[]): number {
+  let n = 0;
+  for (let d = 0; d < 6; d++) {
+    const a = types[d], b = types[d + 1];
+    if (a && b && REGIONS[a].some((r) => REGIONS[b].includes(r))) n++;
+  }
+  return n;
+}
+
+/**
+ * Why swapping weekdays a and b isn't allowed this week, or null if it is.
+ * `plan` is the session type per weekday from the plan; `swaps` are the ones already made this week.
+ */
+export function swapIssue(plan: (SessionType | null)[], swaps: DaySwap[], a: number, b: number): string | null {
+  if (a === b || ![a, b].every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return "Pick two different days.";
+  if (swaps.length >= MAX_WEEKLY_SWAPS) return `You've used your ${MAX_WEEKLY_SWAPS} swaps this week. Reset the week to start over.`;
+  const now = swappedOrder(swaps).map((d) => plan[d]);
+  if (!now[a] || !now[b]) return "Only training days can be swapped. Rest days stay where they are.";
+  if (now[a] === now[b]) return "Both days already have the same workout.";
+  const next = swappedOrder([...swaps, [a, b]]).map((d) => plan[d]);
+  if (clashes(next) > clashes(plan)) return "That puts the same muscles on back-to-back days. They need 48 hours to recover.";
+  return null;
 }
 
 // ── Nutrition ─────────────────────────────────────────────────────────
@@ -337,6 +417,10 @@ export function adaptations(i: TrainingInput, d: DietInput | null, week: WeekPla
   if (i.sleepHours < 7 || i.sleepQuality === "TIRED") out.push({ icon: "moon", text: `You sleep about ${i.sleepHours} hours, so week 1 starts at the low end of training volume.` });
   const pr = i.priorityMuscles.filter((p) => p !== "CORE");
   if (pr.length) out.push({ icon: "target", text: `Extra sets for ${pr.map((p) => p.toLowerCase()).join(" and ")}, placed early in each session.` });
+  if (i.lowPriorityMuscles.length) {
+    const names = i.lowPriorityMuscles.map((p) => p.toLowerCase()).join(" and ");
+    out.push({ icon: "scale", text: `${names[0].toUpperCase()}${names.slice(1)} kept at maintenance: trained by your main lifts, with fewer sets and no extra isolation work.` });
+  }
   if (i.trainTime === "EVENING") out.push({ icon: "sunset", text: "Evening training: your biggest carb portion lands at dinner, after the session." });
   else if (i.trainTime === "EARLY") out.push({ icon: "sunrise", text: "Early training: a light pre-workout snack and a bigger breakfast after." });
   if (i.busyness === "PACKED" || i.blockers.includes("TIME")) out.push({ icon: "zap", text: "Short on time? Every workout has a 20-minute backup version." });

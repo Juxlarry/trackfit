@@ -65,6 +65,8 @@ export interface TrainingInput {
   split: SplitPreference;
   fullBodyDay: boolean;
   priorityMuscles: PriorityMuscle[];
+  /** Muscles the user doesn't want to prioritise: kept at maintenance volume. Never CORE. */
+  lowPriorityMuscles: PriorityMuscle[];
   injuries: Injury[];
   activityLevel: ActivityLevel;
   sleepHours: number;

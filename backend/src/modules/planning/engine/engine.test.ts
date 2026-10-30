@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   RECIPES, allGeneratorExercises, buildWeek, computeProjection, computeTargets, dayRange, estimateActivityKcal,
-  exercisesFor, generatePlan, isScreenedOut, menuFor, pickDays, splitTypes, suggestLoadKg, targetWeightIssue,
-  validateIntake, weekdayOf,
+  exercisesFor, generatePlan, isIsolation, isScreenedOut, menuFor, pickDays, splitTypes, suggestLoadKg, swapIssue, swappedOrder,
+  targetMuscle, targetWeightIssue, validateIntake, weekTypes, weekdayOf,
 } from "./index.js";
 import type { DietInput, TrainingInput } from "./index.js";
 
@@ -11,7 +11,7 @@ const jay: TrainingInput = {
   sex: "MALE", age: 30, heightCm: 168, weightKg: 81.2, bodyFatLevel: 2, goal: "LOSE_FAT", targetWeightKg: 71,
   pace: "MODERATE", experience: "SOME", liftComfort: "LEARNING", equipment: "FULL_GYM", availableDays: [0, 1, 2, 3, 4],
   daysPerWeek: 4, sessionMinutes: 60, split: "AUTO", fullBodyDay: false, priorityMuscles: ["CHEST", "ARMS"],
-  injuries: ["KNEE"], activityLevel: "DESK", sleepHours: 6.5, sleepQuality: "VARIES", trainTime: "EVENING",
+  lowPriorityMuscles: [], injuries: ["KNEE"], activityLevel: "DESK", sleepHours: 6.5, sleepQuality: "VARIES", trainTime: "EVENING",
   busyness: "PACKED", warmup: true, cardioLikes: ["football", "walk"], blockers: ["TIME"],
 };
 const diet: DietInput = {
@@ -90,6 +90,47 @@ test("prioritising core adds a second core move; short sessions pay for the warm
   assert.equal(exercisesFor("UPPER", { ...jay, sessionMinutes: 45, warmup: false }).length, 5);
 });
 
+test("priority muscles get an exercise, extra sets and go first", () => {
+  const plain = { ...jay, priorityMuscles: [] };
+  const ex = exercisesFor("UPPER", { ...plain, priorityMuscles: ["ARMS"] });
+  assert.equal(ex.length, exercisesFor("UPPER", plain).length, "same session length");
+  assert.equal(targetMuscle(ex[0].name), "ARMS", "arms work goes first");
+  assert.equal(ex[0].sets, 5);
+  assert.ok(ex.filter((e) => e.isCore).length >= 1, "core still closes the session");
+  assert.ok(ex[ex.length - 1].isCore);
+});
+
+test("low-priority muscles keep their big lifts but lose isolation work and a set", () => {
+  const plain = { ...jay, priorityMuscles: [] };
+  const base = exercisesFor("UPPER", plain);
+  const ex = exercisesFor("UPPER", { ...plain, lowPriorityMuscles: ["SHOULDERS"] });
+  assert.equal(ex.length, base.length);
+  assert.ok(base.some((e) => /lateral raise/i.test(e.name)), "the plain plan has lateral raises");
+  assert.ok(!ex.some((e) => targetMuscle(e.name) === "SHOULDERS" && isIsolation(e.name)), "no shoulder isolation");
+  const press = ex.find((e) => /shoulder press/i.test(e.name))!;
+  assert.equal(press.sets, 3, "compound kept at maintenance volume");
+  assert.equal(ex.find((e) => e.name === "Bench press")?.sets, 4, "other muscles unchanged");
+  // Nothing to replace with: the isolation move stays, at fewer sets.
+  const legs = exercisesFor("LEGS", { ...plain, injuries: [], lowPriorityMuscles: ["LEGS"] });
+  assert.ok(legs.every((e) => e.isCore || e.sets === 3));
+  assert.ok(generatePlan({ ...plain, lowPriorityMuscles: ["SHOULDERS"] }, diet, "2026-10-27").adaptations.some((a) => /maintenance/.test(a.text)));
+});
+
+test("weekly day swaps: training days only, capped, and no new back-to-back clashes", () => {
+  // Mon Upper, Tue Lower, Thu Upper, Fri Lower
+  const plan = weekTypes([{ weekday: 0, type: "UPPER" }, { weekday: 1, type: "LOWER" }, { weekday: 3, type: "UPPER" }, { weekday: 4, type: "LOWER" }]);
+  assert.deepEqual(swappedOrder([[0, 1], [1, 3]]), [1, 3, 2, 0, 4, 5, 6]);
+  assert.equal(swapIssue(plan, [], 0, 1), null, "Upper/Lower trade places");
+  assert.match(swapIssue(plan, [], 0, 2)!, /training days/);
+  assert.match(swapIssue(plan, [], 0, 3)!, /same workout/);
+  assert.match(swapIssue(plan, [], 1, 3)!, /back-to-back/, "Upper Mon + Upper Tue");
+  assert.match(swapIssue(plan, [[0, 1], [3, 4]], 0, 1)!, /2 swaps/);
+  // Push Mon, Pull Tue, Legs Wed, Full Fri: Push and Pull can trade.
+  const ppl = weekTypes([{ weekday: 0, type: "PUSH" }, { weekday: 1, type: "PULL" }, { weekday: 2, type: "LEGS" }, { weekday: 4, type: "FULL" }]);
+  assert.equal(swapIssue(ppl, [], 0, 1), null);
+  assert.match(swapIssue(ppl, [], 2, 4)!, /back-to-back/, "Full body next to Pull");
+});
+
 test("load suggestions", () => {
   assert.equal(suggestLoadKg("Push-up", jay), null);
   assert.equal(suggestLoadKg("Bench press", { ...jay, equipment: "BODYWEIGHT" }), null);
@@ -129,6 +170,10 @@ test("validation", () => {
   assert.match(targetWeightIssue({ ...jay, targetWeightKg: 85 })!, /below your current/);
   const issues = validateIntake({ ...jay, age: 16, availableDays: [1], daysPerWeek: 4 }, { ...diet, favouriteDishes: ["jollof"] });
   assert.deepEqual(issues.map((x) => x.field).sort(), ["age", "availableDays", "daysPerWeek", "favouriteDishes"]);
+  assert.deepEqual(validateIntake({ ...jay, lowPriorityMuscles: ["LEGS", "GLUTES"] }, diet), []);
+  for (const low of [["CHEST"], ["CORE"], ["LEGS", "GLUTES", "BACK"]] as const) {
+    assert.deepEqual(validateIntake({ ...jay, lowPriorityMuscles: [...low] }, diet).map((x) => x.field), ["lowPriorityMuscles"], low.join());
+  }
 });
 
 test("activity calories and dates", () => {

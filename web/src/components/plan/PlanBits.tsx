@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Bandage, CircleAlert, Clock, Dumbbell, Flame, GraduationCap, Minus, Plus, Moon, PersonStanding, Store, Sunrise, Sunset, Target, Timer, TrendingUp, Zap,
+  Bandage, CircleAlert, Clock, Dumbbell, Flame, GraduationCap, Minus, Plus, Moon, PersonStanding, Scale, Store, Sunrise, Sunset, Target, Timer, TrendingUp, Zap,
   type LucideIcon,
 } from "lucide-react";
 import { ExerciseFigure, ExerciseThumb } from "../../figures/Figures";
@@ -10,7 +10,7 @@ import { Sheet } from "../ui/Sheet";
 /** Engine adaptation icons are lucide names; map them to components. */
 const ADAPT_ICONS: Record<string, LucideIcon> = {
   bandage: Bandage, dumbbell: Dumbbell, flame: Flame, target: Target, "person-standing": PersonStanding, timer: Timer,
-  "graduation-cap": GraduationCap, moon: Moon, sunset: Sunset, sunrise: Sunrise, zap: Zap, store: Store, clock: Clock, "trending-up": TrendingUp,
+  "graduation-cap": GraduationCap, moon: Moon, sunset: Sunset, sunrise: Sunrise, zap: Zap, store: Store, clock: Clock, "trending-up": TrendingUp, scale: Scale,
 };
 export const adaptIcon = (name: string): LucideIcon => ADAPT_ICONS[name] ?? Target;
 

@@ -39,6 +39,9 @@ export function validateIntake(i: TrainingInput, d: DietInput): ValidationIssue[
   if (![30, 45, 60, 75].includes(i.sessionMinutes)) bad("sessionMinutes", "Session length must be 30, 45, 60 or 75 minutes.");
   if (i.split === "MUSCLE_FOCUS" && i.daysPerWeek < 4) bad("split", "Muscle-group focus needs at least 4 days.");
   if (i.priorityMuscles.length > 2) bad("priorityMuscles", "Pick up to 2 priority muscles.");
+  if (i.lowPriorityMuscles.length > 2) bad("lowPriorityMuscles", "Pick up to 2 muscles not to prioritise.");
+  else if (i.lowPriorityMuscles.includes("CORE")) bad("lowPriorityMuscles", "Abs & core stay in every session.");
+  else if (i.lowPriorityMuscles.some((m) => i.priorityMuscles.includes(m))) bad("lowPriorityMuscles", "A muscle can't be both a priority and not a priority.");
   if (!(i.sleepHours >= 3 && i.sleepHours <= 12)) bad("sleepHours", "Sleep must be between 3 and 12 hours.");
   if (d.favouriteDishes.length < 3) bad("favouriteDishes", "Pick at least 3 meals you love.");
   return out;

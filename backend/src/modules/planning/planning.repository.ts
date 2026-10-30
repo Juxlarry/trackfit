@@ -37,8 +37,8 @@ export async function upsertIntake(db: Db, userId: string, i: TrainingInput, x: 
        user_id, sex, age, height_cm, weight_kg, body_fat_level, goal_type, target_weight_kg, goal_pace, motivations,
        experience, lift_comfort, equipment, available_days, days_per_week, session_minutes, split_preference, full_body_day,
        priority_muscles, injuries, injury_note, cardio_frequency, cardio_likes, activity_level, sleep_hours, sleep_quality,
-       train_time, busyness, warmup, energy, blockers, mindset, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32, now())
+       train_time, busyness, warmup, energy, blockers, mindset, low_priority_muscles, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33, now())
      ON CONFLICT (user_id) DO UPDATE SET
        sex = EXCLUDED.sex, age = EXCLUDED.age, height_cm = EXCLUDED.height_cm, weight_kg = EXCLUDED.weight_kg,
        body_fat_level = EXCLUDED.body_fat_level, goal_type = EXCLUDED.goal_type, target_weight_kg = EXCLUDED.target_weight_kg,
@@ -49,12 +49,12 @@ export async function upsertIntake(db: Db, userId: string, i: TrainingInput, x: 
        injury_note = EXCLUDED.injury_note, cardio_frequency = EXCLUDED.cardio_frequency, cardio_likes = EXCLUDED.cardio_likes,
        activity_level = EXCLUDED.activity_level, sleep_hours = EXCLUDED.sleep_hours, sleep_quality = EXCLUDED.sleep_quality,
        train_time = EXCLUDED.train_time, busyness = EXCLUDED.busyness, warmup = EXCLUDED.warmup, energy = EXCLUDED.energy,
-       blockers = EXCLUDED.blockers, mindset = EXCLUDED.mindset, updated_at = now()`,
+       blockers = EXCLUDED.blockers, mindset = EXCLUDED.mindset, low_priority_muscles = EXCLUDED.low_priority_muscles, updated_at = now()`,
     [
       userId, i.sex, i.age, i.heightCm, i.weightKg, i.bodyFatLevel, i.goal, i.targetWeightKg, i.pace, x.motivations,
       i.experience, i.liftComfort, i.equipment, i.availableDays, i.daysPerWeek, i.sessionMinutes, i.split, i.fullBodyDay,
       i.priorityMuscles, i.injuries, x.injuryNote, x.cardioFrequency, i.cardioLikes, i.activityLevel, i.sleepHours, i.sleepQuality,
-      i.trainTime, i.busyness, i.warmup, x.energy, i.blockers, JSON.stringify(x.mindset),
+      i.trainTime, i.busyness, i.warmup, x.energy, i.blockers, JSON.stringify(x.mindset), i.lowPriorityMuscles,
     ],
   );
 }
@@ -75,7 +75,7 @@ export async function getIntake(userId: string, db: Db = pool): Promise<IntakeRo
       goal: r.goal_type, targetWeightKg: r.target_weight_kg == null ? null : Number(r.target_weight_kg), pace: r.goal_pace,
       experience: r.experience, liftComfort: r.lift_comfort, equipment: r.equipment, availableDays: r.available_days,
       daysPerWeek: r.days_per_week, sessionMinutes: r.session_minutes, split: r.split_preference, fullBodyDay: r.full_body_day,
-      priorityMuscles: r.priority_muscles, injuries: r.injuries, activityLevel: r.activity_level, sleepHours: Number(r.sleep_hours),
+      priorityMuscles: r.priority_muscles, lowPriorityMuscles: r.low_priority_muscles ?? [], injuries: r.injuries, activityLevel: r.activity_level, sleepHours: Number(r.sleep_hours),
       sleepQuality: r.sleep_quality, trainTime: r.train_time, busyness: r.busyness, warmup: r.warmup, cardioLikes: r.cardio_likes,
       blockers: r.blockers,
     },
@@ -223,6 +223,53 @@ export async function insertGeneratedTemplates(db: Db, userId: string, programId
       );
     }
   }
+}
+
+// ── Weekly day swaps ──────────────────────────────────────────────────────
+
+export interface ScheduleSwapRow {
+  weekStart: string;
+  dayA: number;
+  dayB: number;
+}
+
+/** Swaps for a program (optionally one week), in the order they were made. */
+export async function listScheduleSwaps(programId: string, weekStart: string | null = null, db: Db = pool): Promise<ScheduleSwapRow[]> {
+  const { rows } = await db.query(
+    `SELECT to_char(week_start,'YYYY-MM-DD') AS week_start, day_a, day_b FROM tracking.schedule_swaps
+     WHERE program_id = $1 AND ($2::date IS NULL OR week_start = $2::date) ORDER BY week_start, created_at`,
+    [programId, weekStart],
+  );
+  return rows.map((r) => ({ weekStart: r.week_start, dayA: r.day_a, dayB: r.day_b }));
+}
+
+export async function insertScheduleSwap(db: Db, programId: string, s: ScheduleSwapRow) {
+  await db.query(
+    `INSERT INTO tracking.schedule_swaps (program_id, week_start, day_a, day_b) VALUES ($1,$2,$3,$4)`,
+    [programId, s.weekStart, s.dayA, s.dayB],
+  );
+}
+
+export async function deleteScheduleSwaps(db: Db, programId: string, weekStart: string | null = null) {
+  await db.query(
+    `DELETE FROM tracking.schedule_swaps WHERE program_id = $1 AND ($2::date IS NULL OR week_start = $2::date)`,
+    [programId, weekStart],
+  );
+}
+
+/** Serialises swap writes for a program so the weekly limit can't be raced. */
+export async function lockProgram(db: Db, programId: string) {
+  await db.query(`SELECT 1 FROM tracking.generated_programs WHERE id = $1 FOR UPDATE`, [programId]);
+}
+
+/** True when this template was logged on (or within a day of, for time zones) the given date. */
+export async function templateLoggedNear(userId: string, templateId: string, dateIso: string, db: Db = pool): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM tracking.workout_sessions
+     WHERE user_id = $1 AND template_id = $2 AND started_at >= ($3::date - 1) AND started_at < ($3::date + 2) LIMIT 1`,
+    [userId, templateId, dateIso],
+  );
+  return rows.length > 0;
 }
 
 export interface StoredSession extends PlannedSession {

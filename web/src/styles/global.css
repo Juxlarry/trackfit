@@ -141,6 +141,7 @@ main.stage{display:flex;flex-direction:column;min-height:100dvh;min-width:0}
 .chip:hover{border-color:var(--ink-3)}
 .chip.on{background:var(--sel-bg);color:var(--sel-fg);border-color:var(--sel-bg)}
 .chip:active{transform:scale(.96)}
+.chip[disabled]{opacity:.45;cursor:not-allowed;transform:none}
 .counter{font-size:13px;color:var(--ink-3);margin-top:12px}
 
 /* ---------- inputs ---------- */

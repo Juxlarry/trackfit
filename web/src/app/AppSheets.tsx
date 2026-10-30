@@ -1,21 +1,26 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApolloClient, useMutation } from "@apollo/client/react";
+import { useApolloClient, useMutation, useQuery } from "@apollo/client/react";
 import {
-  Activity, Bell, Bike, CalendarDays, Check, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
-  Play, Plus, Repeat, Scale, Ship, Target, Trophy, Waves, type LucideIcon,
+  Activity, ArrowLeftRight, Bell, Bike, CalendarDays, Check, CircleAlert, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
+  Play, Plus, Repeat, Scale, Ship, Target, Trophy, Undo2, Waves, type LucideIcon,
 } from "lucide-react";
-import { ACTIVITY_TYPES, CARDIO_LIKE_TO_TYPE, ROUTINES, WARMUPS, estimateActivityKcal, type Effort } from "@engine";
+import {
+  ACTIVITY_TYPES, CARDIO_LIKE_TO_TYPE, MAX_WEEKLY_SWAPS, ROUTINES, WARMUPS, estimateActivityKcal, swapIssue, weekTypes, weekdayOf, type Effort,
+} from "@engine";
 import { useAuth } from "../auth/AuthContext";
-import { LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, SET_REMINDER, SET_START_DATE, SET_TRAINING_DAYS, UPDATE_UNITS } from "../graphql/operations";
-import type { PlannedSessionDto } from "../graphql/types";
+import {
+  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, SET_REMINDER, SET_START_DATE, SET_TRAINING_DAYS,
+  SWAP_SESSION_DAYS, UPDATE_UNITS,
+} from "../graphql/operations";
+import type { PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
 import { usePlan, useUnits } from "../hooks/usePlan";
 import { DaysControl, ExerciseList, useGuide } from "../components/plan/PlanBits";
-import { ChipGroup } from "../components/ui/Options";
+import { ChipGroup, OptionList, toggleIn } from "../components/ui/Options";
 import { Sheet } from "../components/ui/Sheet";
 import { useToast } from "../components/ui/Toast";
-import { dayLabel, localToday } from "../lib/dates";
-import { REFETCH_LOGS, readFlags, writeFlags } from "./planUtil";
+import { DAYS_LONG, dayLabel, dayShort, localToday } from "../lib/dates";
+import { REFETCH_LOGS, readFlags, sessionOn, sessionsByDate, swapsFor, weekDates, writeFlags } from "./planUtil";
 
 export const ACT_ICON: Record<string, LucideIcon> = {
   WALK: Footprints, RUN: Activity, CYCLE: Bike, SWIM: Waves, HIKE: Mountain, ROW: Ship, SKIP: Repeat, FOOTBALL: Trophy, BASKETBALL: Trophy,
@@ -28,7 +33,7 @@ export const ACT_TILES: [string, LucideIcon, string, string][] = [
 
 type Open =
   | { t: "activity"; kind: string; date: string }
-  | { t: "weigh" } | { t: "reminder" } | { t: "audit" } | { t: "profile" }
+  | { t: "weigh" } | { t: "reminder" } | { t: "audit" } | { t: "profile" } | { t: "swap" }
   | { t: "preview"; session: PlannedSessionDto; date: string };
 
 interface SheetsApi {
@@ -38,6 +43,7 @@ interface SheetsApi {
   audit: () => void;
   profile: () => void;
   preview: (session: PlannedSessionDto, date: string) => void;
+  swapDays: () => void;
   guide: (name: string, pattern: string | null) => void;
   /** Bumped when a local-only flag changes so pages re-read it. */
   flagsVersion: number;
@@ -57,6 +63,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
     audit: () => swapTo({ t: "audit" }),
     profile: () => swapTo({ t: "profile" }),
     preview: (session, date) => swapTo({ t: "preview", session, date }),
+    swapDays: () => swapTo({ t: "swap" }),
     guide: guide.open,
     flagsVersion,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,6 +85,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
       <Sheet open={open?.t === "preview"} onClose={close} label="Session preview">
         {open?.t === "preview" && <PreviewSheet session={open.session} date={open.date} onGuide={guide.open} onDone={close} onSeen={bump} />}
       </Sheet>
+      <Sheet open={open?.t === "swap"} onClose={close} label="Swap training days">{open?.t === "swap" && <SwapSheet onDone={close} />}</Sheet>
       {guide.element}
     </Ctx.Provider>
   );
@@ -254,6 +262,56 @@ function AuditSheet({ onDone }: { onDone: () => void }) {
         toast(size === "big" ? "Thanks. Your first goal: one plate, no seconds, at lunch." : "Thanks. Your lunches are already close to plan.");
         onDone();
       }}>Finish audit</button>
+    </>
+  );
+}
+
+// ── Swap training days ──────────────────────────────────────────────────
+
+function SwapSheet({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const plan = usePlan().plan!;
+  const today = localToday();
+  const week = weekDates(today);
+  const sessQ = useQuery<{ workoutSessionsBetween: SessionSummaryDto[] }>(SESSIONS_BETWEEN, { variables: { from: week[0], to: week[6] }, fetchPolicy: "cache-and-network" });
+  const done = sessionsByDate(sessQ.data?.workoutSessionsBetween);
+  const opts = { refetchQueries: [{ query: MY_PLAN }], awaitRefetchQueries: true };
+  const [swap, swapping] = useMutation(SWAP_SESSION_DAYS, opts);
+  const [reset, resetting] = useMutation(RESET_WEEK_SCHEDULE, opts);
+  const [picked, setPicked] = useState<string[]>([]);
+  const swaps = swapsFor(plan, today);
+  const left = MAX_WEEKLY_SWAPS - swaps.length;
+  const locked = (date: string) =>
+    date < today ? "Already passed" : done.has(date) ? "Logged" : date < plan.startDate || date > plan.endDate ? "Outside this cycle" : null;
+  const name = (date: string) => sessionOn(plan, date)?.name ?? "";
+  const [a, b] = [...picked].sort();
+  const issue = left <= 0 ? `You've used your ${MAX_WEEKLY_SWAPS} swaps this week.` : b ? swapIssue(weekTypes(plan.sessions), swaps, weekdayOf(a), weekdayOf(b)) : null;
+  const run = async (fn: () => Promise<unknown>, msg: string) => {
+    try { await fn(); toast(msg); onDone(); } catch (e) { toast(e instanceof Error ? e.message : "Couldn't change your week."); }
+  };
+  return (
+    <>
+      <p className="sh-k">This week only</p>
+      <h3>Swap two training days</h3>
+      <p>Your workouts stay the same, just on different days. Next week goes back to your plan.</p>
+      <OptionList multi label="Training days" selected={picked} onPick={(v) => setPicked((p) => toggleIn(p, v, { max: 2 }))}
+        options={week.filter((d) => sessionOn(plan, d)).map((d) => {
+          const why = locked(d);
+          return { value: d, label: dayShort(d), desc: why ? `${name(d)}. ${why}` : name(d), disabled: !!why || left <= 0 };
+        })} />
+      {issue ? <div className="err"><CircleAlert /><span>{issue}</span></div>
+        : b && <p className="help" style={{ marginTop: 14 }}>{name(b)} moves to {DAYS_LONG[weekdayOf(a)]}, {name(a)} moves to {DAYS_LONG[weekdayOf(b)]}.</p>}
+      <button type="button" className="cta" disabled={!b || !!issue || swapping.loading}
+        onClick={() => void run(() => swap({ variables: { dateA: a, dateB: b } }), `Swapped. ${name(b)} is now on ${DAYS_LONG[weekdayOf(a)]}.`)}>
+        Swap days<ArrowLeftRight />
+      </button>
+      <p className="fine" style={{ marginTop: 12 }}>{Math.max(0, left)} of {MAX_WEEKLY_SWAPS} swaps left this week. Rest days stay put, and days you've logged or that have passed can't move.</p>
+      {swaps.length > 0 && (
+        <div className="btnrow" style={{ marginTop: 14 }}>
+          <button type="button" className="ghost" disabled={resetting.loading}
+            onClick={() => void run(() => reset({ variables: { date: today } }), "This week is back to your plan.")}><Undo2 />Back to my plan</button>
+        </div>
+      )}
     </>
   );
 }

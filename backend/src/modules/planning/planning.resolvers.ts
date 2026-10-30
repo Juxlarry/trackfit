@@ -2,11 +2,11 @@ import type { GraphQLContext } from "../../shared/auth/context.js";
 import { requireUser } from "../../shared/auth/context.js";
 import type { DietInput, TrainingInput } from "./engine/index.js";
 import {
-  completeOnboarding, getActivePlan, previewPlan, setStartDate, setTrainingDays, setWorkoutReminder,
+  completeOnboarding, getActivePlan, previewPlan, resetWeekSchedule, setStartDate, setTrainingDays, setWorkoutReminder, swapSessionDays,
   type ActivePlan, type OnboardingSubmission,
 } from "./planning.service.js";
 
-type TrainingArg = TrainingInput & { motivations?: string[] | null; injuryNote?: string | null; cardioFrequency?: string | null; energy?: string | null };
+type TrainingArg = Omit<TrainingInput, "lowPriorityMuscles"> & { lowPriorityMuscles?: TrainingInput["lowPriorityMuscles"] | null; motivations?: string[] | null; injuryNote?: string | null; cardioFrequency?: string | null; energy?: string | null };
 type DietArg = Omit<DietInput, "dislikes" | "prep"> & { dislikes?: string | null; prep?: DietInput["prep"] | null; calorieAwareness?: string | null; proteinAwareness?: string | null };
 
 /** GraphQL leaves optional fields undefined; the engine expects explicit nulls. */
@@ -16,7 +16,7 @@ function toTraining(t: TrainingArg): TrainingInput {
     targetWeightKg: t.targetWeightKg ?? null, pace: t.pace ?? null, experience: t.experience, liftComfort: t.liftComfort,
     equipment: t.equipment, availableDays: [...new Set(t.availableDays)].sort(), daysPerWeek: t.daysPerWeek,
     sessionMinutes: t.sessionMinutes as TrainingInput["sessionMinutes"], split: t.split, fullBodyDay: t.fullBodyDay,
-    priorityMuscles: t.priorityMuscles, injuries: t.injuries, activityLevel: t.activityLevel, sleepHours: t.sleepHours,
+    priorityMuscles: t.priorityMuscles, lowPriorityMuscles: [...new Set(t.lowPriorityMuscles ?? [])], injuries: t.injuries, activityLevel: t.activityLevel, sleepHours: t.sleepHours,
     sleepQuality: t.sleepQuality ?? null, trainTime: t.trainTime ?? null, busyness: t.busyness ?? null, warmup: t.warmup,
     cardioLikes: t.cardioLikes, blockers: t.blockers,
   };
@@ -35,7 +35,7 @@ function presentPlan(p: ActivePlan) {
       goal: p.profile.goal, targetWeightKg: p.profile.targetWeightKg, startWeightKg: p.profile.weightKg, heightCm: p.profile.heightCm,
       sessionMinutes: p.profile.sessionMinutes, sleepHours: p.profile.sleepHours, equipment: p.profile.equipment,
       experience: p.profile.experience, warmup: p.profile.warmup, cardioLikes: p.profile.cardioLikes,
-      priorityMuscles: p.profile.priorityMuscles, reminderTime: p.profile.reminderTime, dietPattern: p.profile.diet.pattern,
+      priorityMuscles: p.profile.priorityMuscles, lowPriorityMuscles: p.profile.lowPriorityMuscles, reminderTime: p.profile.reminderTime, dietPattern: p.profile.diet.pattern,
       allergies: p.profile.diet.allergies, mealPattern: p.profile.diet.mealPattern, fasting: p.profile.diet.fasting,
       prep: p.profile.diet.prep, favouriteDishes: p.profile.diet.favouriteDishes,
     },
@@ -84,6 +84,10 @@ export const planningResolvers = {
       presentPlan(await setTrainingDays(requireUser(ctx).id, args.days)),
     setStartDate: async (_p: unknown, args: { date: string }, ctx: GraphQLContext) =>
       presentPlan(await setStartDate(requireUser(ctx).id, args.date)),
+    swapSessionDays: async (_p: unknown, args: { dateA: string; dateB: string }, ctx: GraphQLContext) =>
+      presentPlan(await swapSessionDays(requireUser(ctx).id, args.dateA, args.dateB)),
+    resetWeekSchedule: async (_p: unknown, args: { date: string }, ctx: GraphQLContext) =>
+      presentPlan(await resetWeekSchedule(requireUser(ctx).id, args.date)),
     setWorkoutReminder: async (_p: unknown, args: { time?: string | null }, ctx: GraphQLContext) =>
       presentPlan(await setWorkoutReminder(requireUser(ctx).id, args.time ?? null)),
   },

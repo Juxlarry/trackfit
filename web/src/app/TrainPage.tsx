@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { Check, ChevronDown, ClipboardList, History, Plus } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, ClipboardList, History, Plus } from "lucide-react";
 import { MY_PLAN, SESSIONS_BETWEEN, SET_TRAINING_DAYS } from "../graphql/operations";
 import type { SessionSummaryDto } from "../graphql/types";
 import { usePlan } from "../hooks/usePlan";
@@ -11,7 +11,7 @@ import { useToast } from "../components/ui/Toast";
 import { DAYS, dayOfMonth, localToday } from "../lib/dates";
 import { ViewHead } from "./AppLayout";
 import { ACT_TILES, useSheets } from "./AppSheets";
-import { cycleWeek, sessionOn, sessionsByDate, weekDates } from "./planUtil";
+import { cycleWeek, isMoved, sessionOn, sessionsByDate, weekDates } from "./planUtil";
 
 const PROG: [string, string][] = [
   ["Week 1", "Find your working weights. Stop each set with 2 to 3 reps left."], ["Week 2", "Same weights, add 1 to 2 reps per set."],
@@ -84,7 +84,7 @@ export function TrainPage() {
                   <div key={date} className={`srow${isT ? " today-row" : ""}${x ? " x" : ""}`}>
                     <div className="day">{DAYS[k]}<b>{dayOfMonth(date)}</b></div>
                     <div>
-                      <div className="nm">{s.name}{swaps > 0 && <span className="tag swap">{swaps} swap{swaps > 1 ? "s" : ""}</span>}</div>
+                      <div className="nm">{s.name}{isMoved(plan, date) && <span className="tag">Moved</span>}{swaps > 0 && <span className="tag swap">{swaps} swap{swaps > 1 ? "s" : ""}</span>}</div>
                       <div className="meta">{s.warmup.length ? "Warm-up, " : ""}{s.exercises.length} exercises, {plan.profile.sessionMinutes} min</div>
                     </div>
                     <span className="acts-r">
@@ -96,6 +96,9 @@ export function TrainPage() {
                   </div>
                 );
               })}
+            </div>
+            <div className="btnrow" style={{ marginTop: 14 }}>
+              <button type="button" className="ghost" onClick={sheets.swapDays}><ArrowLeftRight />Swap days this week</button>
             </div>
           </section>
           <section className="card fadein" style={{ "--d": ".1s" } as CSSProperties}>

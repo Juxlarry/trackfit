@@ -267,6 +267,8 @@ model IntakeProfile {
   splitPreference String
   fullBodyDay     Boolean  @default(false)
   priorityMuscles String[]
+  /// Muscles not to prioritise (kept at maintenance volume).
+  lowPriorityMuscles String[]
   injuries        String[]
   injuryNote      String?
   cardioFrequency String?
@@ -306,9 +308,27 @@ model GeneratedProgram {
 
   user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]
+  swaps     ScheduleSwap[]
 
   @@schema("tracking")
   @@map("generated_programs")
+}
+
+/// One week's training-day swap, applied in createdAt order on top of the plan's week.
+model ScheduleSwap {
+  id        String   @id @default(uuid())
+  programId String
+  /// Monday of the week the swap applies to.
+  weekStart DateTime @db.Date
+  dayA      Int      @db.SmallInt
+  dayB      Int      @db.SmallInt
+  createdAt DateTime @default(now())
+
+  program GeneratedProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([programId, weekStart])
+  @@schema("tracking")
+  @@map("schedule_swaps")
 }
 
 model ActivityLog {

@@ -50,6 +50,8 @@ export const planningTypeDefs = /* GraphQL */ `
     split: SplitPreference!
     fullBodyDay: Boolean!
     priorityMuscles: [PriorityMuscle!]!
+    "Muscles not to prioritise (kept at maintenance). Up to 2, never CORE or a priority muscle."
+    lowPriorityMuscles: [PriorityMuscle!]
     injuries: [Injury!]!
     activityLevel: ActivityLevel!
     sleepHours: Float!
@@ -128,6 +130,8 @@ export const planningTypeDefs = /* GraphQL */ `
   type RestDay { weekday: Int! suggestion: String! }
   type Adaptation { icon: String! text: String! }
   type DayRange { min: Int! max: Int! }
+  "Sessions on weekdays dayA and dayB trade places for the week starting weekStart (a Monday)."
+  type ScheduleSwap { weekStart: String! dayA: Int! dayB: Int! }
 
   type MenuItem {
     slotIndex: Int!
@@ -173,6 +177,7 @@ export const planningTypeDefs = /* GraphQL */ `
     warmup: Boolean!
     cardioLikes: [String!]!
     priorityMuscles: [PriorityMuscle!]!
+    lowPriorityMuscles: [PriorityMuscle!]!
     reminderTime: String
     dietPattern: DietPattern!
     allergies: [Allergen!]!
@@ -197,6 +202,8 @@ export const planningTypeDefs = /* GraphQL */ `
     sessions: [PlannedSession!]!
     restDays: [RestDay!]!
     adaptations: [Adaptation!]!
+    "Day swaps per week, in the order made. Apply them to sessions' weekdays to get that week's schedule."
+    scheduleSwaps: [ScheduleSwap!]!
     profile: PlanProfile!
   }
 
@@ -219,6 +226,10 @@ export const planningTypeDefs = /* GraphQL */ `
     "±1 day rule: anywhere in dayRange."
     setTrainingDays(days: Int!): ActivePlan!
     setStartDate(date: String!): ActivePlan!
+    "Swap the sessions on two training days (YYYY-MM-DD) this week. Up to 2 swaps a week; the plan itself doesn't change."
+    swapSessionDays(dateA: String!, dateB: String!): ActivePlan!
+    "Undo this week's swaps for the week containing date."
+    resetWeekSchedule(date: String!): ActivePlan!
     "HH:MM 24-hour, or null to turn reminders off."
     setWorkoutReminder(time: String): ActivePlan!
   }

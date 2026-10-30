@@ -33,6 +33,7 @@ export interface Draft {
   split: SplitPreference | "";
   fullBodyDay: boolean | null;
   priorityMuscles: (PriorityMuscle | "EVEN")[];
+  lowPriorityMuscles: (PriorityMuscle | "NONE")[];
   injuries: (Injury | "NONE")[];
   injuryNote: string;
   cardioFrequency: string;
@@ -71,7 +72,7 @@ export const emptyDraft = (): Draft => ({
   safety: [], name: "", sex: "", age: 30, heightUnit: "cm", heightCm: 170, weightUnit: "kg", weightKg: 75,
   bodyFatLevel: null, bodyFatView: "figures", goal: "", targetWeightKg: null, pace: "", motivations: [],
   experience: "", liftComfort: "", equipment: "", availableDays: [], daysPerWeek: 0, sessionMinutes: 0, split: "",
-  fullBodyDay: null, priorityMuscles: [], injuries: [], injuryNote: "", cardioFrequency: "", cardioLikes: [],
+  fullBodyDay: null, priorityMuscles: [], lowPriorityMuscles: [], injuries: [], injuryNote: "", cardioFrequency: "", cardioLikes: [],
   activityLevel: "", sleepHours: 7, sleepQuality: "", trainTime: "", busyness: "", dietPattern: "", allergies: [],
   dislikes: "", favouriteDishes: [], mealPattern: "", prep: "", calorieAwareness: "", proteinAwareness: "", struggles: [],
   fasting: "", blockers: [], likertConsistency: 0, likertGuidance: 0, tried: [], motivator: "", support: "", energy: "",
@@ -108,6 +109,8 @@ export function toTraining(d: Draft): TrainingInput {
     availableDays: avail, daysPerWeek: days, sessionMinutes: (d.sessionMinutes || 45) as TrainingInput["sessionMinutes"],
     split: d.split || "AUTO", fullBodyDay: d.fullBodyDay === true,
     priorityMuscles: d.priorityMuscles.filter((m): m is PriorityMuscle => m !== "EVEN"),
+    // Going back and making a muscle a priority wins over an earlier "not a priority".
+    lowPriorityMuscles: d.lowPriorityMuscles.filter((m): m is PriorityMuscle => m !== "NONE" && !d.priorityMuscles.includes(m)),
     injuries: d.injuries.filter((i): i is Injury => i !== "NONE"),
     activityLevel: d.activityLevel || "LIGHT", sleepHours: d.sleepHours, sleepQuality: d.sleepQuality || null,
     trainTime: d.trainTime || null, busyness: d.busyness || null, warmup: d.warmup !== false,
@@ -151,7 +154,7 @@ export function sampleDraft(today: string): Draft {
     ...emptyDraft(), safety: ["NONE"], name: "Jay", sex: "MALE", age: 30, heightCm: 168, weightKg: 81.2, bodyFatLevel: 2,
     goal: "LOSE_FAT", targetWeightKg: 71, pace: "MODERATE", motivations: ["confidence", "health"], experience: "SOME",
     liftComfort: "LEARNING", equipment: "FULL_GYM", availableDays: [0, 1, 2, 3, 4], daysPerWeek: 4, sessionMinutes: 60, split: "AUTO",
-    fullBodyDay: false, priorityMuscles: ["CHEST", "ARMS"], injuries: ["KNEE"], cardioFrequency: "some", cardioLikes: ["football", "walk"],
+    fullBodyDay: false, priorityMuscles: ["CHEST", "ARMS"], lowPriorityMuscles: ["LEGS"], injuries: ["KNEE"], cardioFrequency: "some", cardioLikes: ["football", "walk"],
     activityLevel: "DESK", sleepHours: 6.5, sleepQuality: "VARIES", trainTime: "EVENING", busyness: "PACKED", dietPattern: "OMNIVORE",
     allergies: ["NONE"], favouriteDishes: ["jollof", "waakye", "banku", "oats"], mealPattern: "THREE", prep: "BATCH_FEW_DAYS",
     calorieAwareness: "noidea", proteinAwareness: "noidea", struggles: ["WEEKENDS", "EVENINGS"], fasting: "NO", blockers: ["TIME", "PLATEAU"],
