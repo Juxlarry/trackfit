@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import {
   Activity, Anchor, Armchair, BadgeCheck, Ban, BatteryFull, BatteryLow, Bean, Bike, Bone, Brain, Building2, Cable, CalendarDays,
   Check, CircleHelp, Clock, Columns2, Compass, CupSoda, Dumbbell, Egg, Ellipsis, Fish, Flag, Flame, Footprints, GraduationCap,
@@ -10,6 +10,7 @@ import {
   FAVOURITE_DISHES, PACE_RATE, buildWeek, computeProjection, computeTargets, splitLabel, splitTypes, targetWeightIssue,
   type PriorityMuscle,
 } from "@engine";
+import { Link } from "react-router-dom";
 import { ChipGroup, OptionList, toggleIn, type Opt } from "../components/ui/Options";
 import { Measure } from "../components/ui/Measure";
 import { BodyFigure } from "../figures/Figures";
@@ -25,6 +26,8 @@ export interface StepCtx {
   next: () => void;
   go: (id: string) => void;
   signedIn: boolean;
+  /** Signed in and already has an active plan. */
+  hasPlan: boolean;
   today: string;
 }
 
@@ -118,6 +121,40 @@ function BodyShape({ c }: { c: StepCtx }) {
   );
 }
 
+/** Lets people add meals the list doesn't have; each becomes its own chip, ticked. */
+function AddDish({ c }: { c: StepCtx }) {
+  const [text, setText] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const name = text.trim().replace(/\s+/g, " ");
+  const add = () => {
+    if (!name) return;
+    const known = [...FAVOURITE_DISHES.map((f) => f.label), ...c.d.customDishes];
+    const hit = known.find((x) => x.toLowerCase() === name.toLowerCase());
+    if (hit) {
+      const fav = FAVOURITE_DISHES.find((f) => f.label === hit);
+      const value = fav ? fav.dish : hit;
+      if (!c.d.favouriteDishes.includes(value)) c.set({ favouriteDishes: [...c.d.favouriteDishes, value] });
+      setMsg(`${hit} is already on the list, so we ticked it.`);
+    } else {
+      c.set({ customDishes: [...c.d.customDishes, name], favouriteDishes: [...c.d.favouriteDishes, name] });
+      setMsg(null);
+    }
+    setText("");
+  };
+  return (
+    <div className="field add-dish">
+      <label htmlFor="f-dish">Missing something you love? <span className="opt-l">Add it</span></label>
+      <div className="add-row">
+        <input className="txt" id="f-dish" maxLength={40} placeholder="e.g. Ampesi and palava sauce" value={text}
+          onChange={(e) => { setText(e.target.value); setMsg(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); add(); } }} />
+        <button type="button" className="ghost" onClick={add} disabled={!name}><Plus />Add</button>
+      </div>
+      {msg ? <p className="help">{msg}</p> : c.d.customDishes.length > 0 && <p className="help">Meals you add guide your plan. Until we have portion sizes for a dish, your menu uses the closest match.</p>}
+    </div>
+  );
+}
+
 function DaysStep({ c }: { c: StepCtx }) {
   const { d, set } = c;
   const max = Math.min(6, d.availableDays.length);
@@ -173,7 +210,7 @@ const chips = <T extends string | number>(c: StepCtx, field: keyof Draft, option
 export const STEPS: Step[] = [
   {
     id: "welcome", stage: -1, cta: "Start my plan",
-    screen: () => (
+    screen: (c) => (
       <div className="welcome stagger">
         <h1 style={i(0)}>Let's build a plan that fits your life.</h1>
         <p style={i(1)}>Answer a few questions about your body, your week and how you eat. TrackFit turns them into a 6-week training program and a meal plan built from food you actually like.</p>
@@ -182,6 +219,13 @@ export const STEPS: Step[] = [
           <div><b>6 weeks</b><span>per program cycle</span></div>
           <div><b>2 plans</b><span>training and meals, together</span></div>
         </div>
+        <p className="welcome-alt" style={i(3)}>
+          {c.hasPlan
+            ? <>You already have a plan. <Link to="/today">Open my plan</Link><span aria-hidden="true">·</span>or start again below to build a new one.</>
+            : c.signedIn
+              ? <>You're signed in. Answer the questions to build your plan.</>
+              : <>Already have an account? <Link to="/signin">Sign in</Link></>}
+        </p>
       </div>
     ),
   },
@@ -552,7 +596,7 @@ export const STEPS: Step[] = [
       return (
         <div className="inter">
           <h1 className="qh">Your week is <M>taking shape</M>.</h1>
-          <p className="qs">{w.daysPerWeek} sessions of {c.d.sessionMinutes} minutes, {w.splitLabel.toLowerCase()}. Rest days are kept free for {rest} and recovery.</p>
+          <p className="qs">{w.daysPerWeek} sessions of {toTraining(c.d).sessionMinutes} minutes, {w.splitLabel.toLowerCase()}. Rest days are kept free for {rest} and recovery.</p>
           <div className="weekstrip stagger">
             {DAYS.map((name, k) => (
               <div key={k} className={`ws${byDay.has(k) ? " train" : ""}`} style={i(k)}><b>{name}</b><span>{byDay.get(k) ?? "Rest"}</span></div>
@@ -640,7 +684,8 @@ export const STEPS: Step[] = [
     sub: () => "Pick at least 3. We size your favourites to your targets instead of replacing them with chicken and broccoli.",
     body: (c) => (
       <>
-        {multi(c, "favouriteDishes", FAVOURITE_DISHES.map((f) => ({ value: f.dish, label: f.label })), { chips: true })}
+        {multi(c, "favouriteDishes", [...FAVOURITE_DISHES.map((f) => ({ value: f.dish, label: f.label })), ...c.d.customDishes.map((x) => ({ value: x, label: x }))], { chips: true })}
+        <AddDish c={c} />
         <p className="counter">{c.d.favouriteDishes.length} picked</p>
       </>
     ),

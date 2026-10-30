@@ -4,7 +4,7 @@ import { bodyFig, drawFig, PATS, type FigMode } from "./figureEngine";
 const reduceMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * Animated exercise figure. `pattern` comes from the plan (engine patternOf).
+ * Animated exercise figure. `pattern` is a figure key from patOf(exerciseName).
  * Loops a rep every 2.8 s while `animate` is true; static otherwise or when
  * the user prefers reduced motion.
  */
@@ -36,7 +36,7 @@ export function ExerciseFigure({ pattern, mode = "good", animate = false, rest =
     return () => cancelAnimationFrame(raf);
   }, [pattern, mode, animate, rest]);
   if (!PATS[pattern]) return null;
-  return <svg ref={ref} className={`figsvg ${className ?? ""}`} viewBox="0 0 240 186" role="img"
+  return <svg ref={ref} className={`figsvg${PATS[pattern].front ? " front" : ""} ${className ?? ""}`} viewBox="0 -20 240 206" role="img"
     aria-label={label ?? (mode === "bad" ? `Common mistake: ${PATS[pattern].bad_lbl}` : "Correct form")} />;
 }
 

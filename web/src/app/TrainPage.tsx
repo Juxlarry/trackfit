@@ -6,6 +6,7 @@ import { MY_PLAN, SESSIONS_BETWEEN, SET_TRAINING_DAYS } from "../graphql/operati
 import type { SessionSummaryDto } from "../graphql/types";
 import { usePlan } from "../hooks/usePlan";
 import { ExerciseFigure } from "../figures/Figures";
+import { patOf } from "../figures/figureEngine";
 import { DaysControl, ExerciseList, RangeNote } from "../components/plan/PlanBits";
 import { useToast } from "../components/ui/Toast";
 import { DAYS, dayOfMonth, localToday } from "../lib/dates";
@@ -41,7 +42,7 @@ export function TrainPage() {
 
   const guides = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const s of plan.sessions) for (const e of s.exercises) if (e.pattern && !seen.has(e.name)) seen.set(e.name, e.pattern);
+    for (const s of plan.sessions) for (const e of s.exercises) { const f = patOf(e.name); if (f && !seen.has(e.name)) seen.set(e.name, f); }
     return [...seen];
   }, [plan.sessions]);
 

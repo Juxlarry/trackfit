@@ -47,6 +47,8 @@ export interface Draft {
   allergies: (Allergen | "NONE")[];
   dislikes: string;
   favouriteDishes: string[];
+  /** Meals the user typed in themselves (kept as chips even when unticked). */
+  customDishes: string[];
   mealPattern: MealPattern | "";
   prep: PrepStyle | "";
   calorieAwareness: string;
@@ -74,7 +76,7 @@ export const emptyDraft = (): Draft => ({
   experience: "", liftComfort: "", equipment: "", availableDays: [], daysPerWeek: 0, sessionMinutes: 0, split: "",
   fullBodyDay: null, priorityMuscles: [], lowPriorityMuscles: [], injuries: [], injuryNote: "", cardioFrequency: "", cardioLikes: [],
   activityLevel: "", sleepHours: 7, sleepQuality: "", trainTime: "", busyness: "", dietPattern: "", allergies: [],
-  dislikes: "", favouriteDishes: [], mealPattern: "", prep: "", calorieAwareness: "", proteinAwareness: "", struggles: [],
+  dislikes: "", favouriteDishes: [], customDishes: [], mealPattern: "", prep: "", calorieAwareness: "", proteinAwareness: "", struggles: [],
   fasting: "", blockers: [], likertConsistency: 0, likertGuidance: 0, tried: [], motivator: "", support: "", energy: "",
   warmup: null, revealDays: 0, startChoice: "", startDate: "", email: "",
 });

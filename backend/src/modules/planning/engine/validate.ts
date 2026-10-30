@@ -44,5 +44,7 @@ export function validateIntake(i: TrainingInput, d: DietInput): ValidationIssue[
   else if (i.lowPriorityMuscles.some((m) => i.priorityMuscles.includes(m))) bad("lowPriorityMuscles", "A muscle can't be both a priority and not a priority.");
   if (!(i.sleepHours >= 3 && i.sleepHours <= 12)) bad("sleepHours", "Sleep must be between 3 and 12 hours.");
   if (d.favouriteDishes.length < 3) bad("favouriteDishes", "Pick at least 3 meals you love.");
+  if (d.favouriteDishes.length > 40) bad("favouriteDishes", "Pick up to 40 meals.");
+  if (d.favouriteDishes.some((x) => !x.trim() || x.length > 40)) bad("favouriteDishes", "Each meal name must be 1 to 40 characters.");
   return out;
 }

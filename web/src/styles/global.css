@@ -6,7 +6,7 @@
   --ink:#12261E; --ink-2:#3D5047; --ink-3:#66766D; --line:#D6DACB;
   --lime:#C8F25A; --lime-ink:#12261E; --mark:#C8F25A;
   --coral:#FF6B4A; --coral-text:#B4391C;
-  --sel-bg:#12261E; --sel-fg:#F6F4EE; --sel-tick:#C8F25A;
+  --sel-bg:#12261E; --sel-fg:#F6F4EE; --sel-tick:#C8F25A; --sel-accent:#FF9A80;
   --shadow:18 38 30;
   --f-display:"Bricolage Grotesque Variable", "Onest Variable", system-ui, sans-serif;
   --f-body:"Onest Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -18,14 +18,14 @@
   --paper:#0F1A15; --sunk:#14221B; --card:#172820; --sage:#1B2E24;
   --ink:#EEF2E6; --ink-2:#C2CEC3; --ink-3:#8E9E93; --line:#2C3E35;
   --mark:rgba(200,242,90,.32); --coral:#FF7A5C; --coral-text:#FF9C83;
-  --sel-bg:#EEF2E6; --sel-fg:#0F1A15; --sel-tick:#12261E; --shadow:0 0 0;
+  --sel-bg:#EEF2E6; --sel-fg:#0F1A15; --sel-tick:#12261E; --sel-accent:#B4391C; --shadow:0 0 0;
   color-scheme:dark;
 }}
 :root[data-theme="dark"]{
   --paper:#0F1A15; --sunk:#14221B; --card:#172820; --sage:#1B2E24;
   --ink:#EEF2E6; --ink-2:#C2CEC3; --ink-3:#8E9E93; --line:#2C3E35;
   --mark:rgba(200,242,90,.32); --coral:#FF7A5C; --coral-text:#FF9C83;
-  --sel-bg:#EEF2E6; --sel-fg:#0F1A15; --sel-tick:#12261E; --shadow:0 0 0;
+  --sel-bg:#EEF2E6; --sel-fg:#0F1A15; --sel-tick:#12261E; --sel-accent:#B4391C; --shadow:0 0 0;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -239,7 +239,7 @@ blockquote.stmt{margin:0;font-family:var(--f-display);font-size:21px;line-height
 .ws b{font-size:11.5px;color:var(--ink-3);font-weight:600}
 .ws span{font-weight:600;font-size:13px;line-height:1.2}
 .ws.train{background:var(--sel-bg);color:var(--sel-fg)}
-.ws.train b{color:var(--lime)}
+.ws.train b{color:var(--sel-accent)}
 
 /* ---------- loader ---------- */
 .build{max-width:520px}
@@ -370,6 +370,8 @@ blockquote.stmt{margin:0;font-family:var(--f-display);font-size:21px;line-height
 .figsvg .plate{fill:none;stroke:var(--ink-3);stroke-width:5}
 .figsvg .hub{fill:var(--ink-3)}
 .figsvg .db{fill:var(--ink-3)}.figsvg .db.far{opacity:.4}
+.figsvg .lever{stroke:var(--ink-3);stroke-width:6;stroke-linecap:round}
+.figsvg.front .fig-main .limb.far,.figsvg.front .fig-main .foot.far{stroke-opacity:1;stroke-width:10}
 .figsvg .cable{stroke:var(--ink-3);stroke-width:1.5;stroke-dasharray:4 3}
 .figsvg .hl{fill:color-mix(in srgb,var(--coral) 14%,transparent);stroke:var(--coral);stroke-width:2.5;animation:hl 1.4s ease-in-out infinite}
 @keyframes hl{50%{stroke-opacity:.35}}
@@ -760,3 +762,10 @@ button.li:hover .t{text-decoration:underline;text-underline-offset:3px;text-deco
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 a.tab,a.linkbtn,a.li,.back-link{text-decoration:none;color:inherit}
 .back-link{display:inline-flex;align-items:center;gap:6px;margin-bottom:16px;font-weight:500;color:var(--ink-2)}
+.add-dish{margin-top:22px;max-width:520px}
+.add-row{display:flex;gap:10px}
+.add-row .txt{flex:1;min-width:0}
+.add-row .ghost[disabled]{opacity:.45;cursor:not-allowed}
+.top-signin{margin-left:auto;font-size:14px;font-weight:600;color:var(--ink-2);white-space:nowrap;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line)}
+.welcome-alt{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:14.5px;color:var(--ink-2)}
+.welcome-alt a{font-weight:600;color:var(--ink);text-underline-offset:3px}

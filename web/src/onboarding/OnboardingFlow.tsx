@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { Activity, ArrowLeft, ArrowRight, Dumbbell, FlaskConical, Moon, Ruler, ShieldCheck, Target, User, Utensils } from "lucide-react";
 import { computeTargets } from "@engine";
 import { useIsSignedIn } from "../auth/AuthContext";
@@ -87,7 +87,7 @@ export function OnboardingFlow() {
   const navigate = useNavigate();
   const toast = useToast();
   const signedIn = useIsSignedIn();
-  const { me } = usePlan();
+  const { me, plan } = usePlan();
   const { draft: d, latest, set, replace } = useOnboarding();
   const submitPlan = useSubmitPlan();
   const today = useMemo(() => localToday(), []);
@@ -150,7 +150,7 @@ export function OnboardingFlow() {
     }, reduce() ? 60 : 340);
   };
 
-  const ctx: StepCtx = { d, set, pick, next: () => void next(), go: (id) => goTo(id, -1), signedIn, today };
+  const ctx: StepCtx = { d, set, pick, next: () => void next(), go: (id) => goTo(id, -1), signedIn, hasPlan: signedIn && !!plan, today };
 
   // Enter advances, except in text areas, open sheets and screens without the action bar.
   useEffect(() => {
@@ -195,6 +195,8 @@ export function OnboardingFlow() {
           <div className="brand"><span className="brand-mark"><Activity /></span>TrackFit</div>
           <button className="back" type="button" onClick={back} disabled={idx === 0 || step.id === "build"}><ArrowLeft />Back</button>
           <Rail step={step} d={d} signedIn={signedIn} />
+          {!signedIn && step.id !== "signup" && step.id !== "build" && <Link className="top-signin" to="/signin">Sign in</Link>}
+          {signedIn && plan && <Link className="top-signin" to="/today">My plan</Link>}
         </div>
         <div className="screen-wrap">
           <section id="screen" aria-live="polite">

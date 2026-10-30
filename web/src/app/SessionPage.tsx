@@ -6,6 +6,7 @@ import { LAST_SETS, LOG_PLANNED_SESSION } from "../graphql/operations";
 import type { PlannedExerciseDto } from "../graphql/types";
 import { usePlan, useUnits } from "../hooks/usePlan";
 import { ExerciseThumb } from "../figures/Figures";
+import { patOf } from "../figures/figureEngine";
 import { Sheet } from "../components/ui/Sheet";
 import { useToast } from "../components/ui/Toast";
 import { localToday, mmss, noonOn } from "../lib/dates";
@@ -134,7 +135,7 @@ export function SessionPage() {
           return (
             <section className="excard" key={e.name}>
               <div className="excard-h">
-                <ExerciseThumb pattern={e.pattern} name={e.name} onOpen={() => sheets.guide(e.name, e.pattern)} />
+                <ExerciseThumb pattern={patOf(e.name)} name={e.name} onOpen={() => sheets.guide(e.name, e.pattern)} />
                 <div><div className="t">{e.name}{e.swapped && <span className="tag swap">swap</span>}</div><div className="d">{e.sets} sets of {e.reps}{e.swapped && e.replaces ? `, replaces ${e.replaces.toLowerCase()}` : ""}</div></div>
                 <button type="button" className="linkbtn" onClick={() => sheets.guide(e.name, e.pattern)}><Info />How</button>
               </div>

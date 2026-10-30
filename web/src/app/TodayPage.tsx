@@ -74,7 +74,7 @@ export function TodayPage() {
           <p style={{ marginTop: 10 }}>First up: {f.session.name} on {dayLabel(f.date)}. Tick off your Day 1 essentials before then.</p>
           <div className="row"><button type="button" className="cta small-cta" onClick={() => sheets.preview(f.session, f.date)}>Preview {f.session.name}<Eye /></button></div>
         </div>
-        <Peek pattern={f.session.exercises[0]?.pattern ?? null} />
+        <Peek pattern={patOf(f.session.exercises[0]?.name ?? "")} />
       </section>
     );
   } else if (s && !doneToday) {
@@ -90,7 +90,7 @@ export function TodayPage() {
             <button type="button" className="ghost" style={lightGhost} onClick={() => sheets.preview(s, today)}>Preview</button>
           </div>
         </div>
-        <Peek pattern={s.exercises[0]?.pattern ?? patOf(s.exercises[0]?.name ?? "")} />
+        <Peek pattern={patOf(s.exercises[0]?.name ?? "")} />
       </section>
     );
   } else if (doneToday) {
@@ -102,7 +102,7 @@ export function TodayPage() {
           <p>{doneToday.durationMinutes ? `${doneToday.durationMinutes} min long, ` : ""}{doneToday.setCount} sets and {units.toDisplay(doneToday.volumeKg).toLocaleString("en-GB")} {units.unit} lifted.</p>
           <div className="row"><button type="button" className="cta small-cta" onClick={() => sheets.activity()}>Log an extra activity<Plus /></button></div>
         </div>
-        <Peek pattern={s?.exercises[0]?.pattern ?? null} />
+        <Peek pattern={patOf(s?.exercises[0]?.name ?? "")} />
       </section>
     );
   } else {

@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useMutation } from "@apollo/client/react";
 import { Activity, ArrowRight, CircleAlert } from "lucide-react";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth, useIsSignedIn } from "../auth/AuthContext";
 import { DEV_AUTH_BYPASS, authErrorMessage, signInWithEmail, signInWithGoogle } from "../firebase";
 import { DEV_CREATE_USER } from "../graphql/operations";
 
@@ -19,6 +19,7 @@ export function SignInPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [devCreateUser] = useMutation<{ devCreateUser: { id: string } }>(DEV_CREATE_USER);
+  const signedIn = useIsSignedIn();
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -36,6 +37,9 @@ export function SignInPage() {
       setDevUserId(res.data.devCreateUser.id);
     });
   };
+
+  // Already signed in on this device: go straight to the plan (or the quiz if there isn't one).
+  if (signedIn && !busy) return <Navigate to="/" replace />;
 
   return (
     <div className="app is-plan">

@@ -44,7 +44,7 @@ export function ExerciseList({ warmup, exercises, onGuide }: {
         </div>
       )}
       {exercises.map((e) => {
-        const pat = e.pattern ?? patOf(e.name);
+        const pat = patOf(e.name);
         return (
           <div className="ex" key={e.name}>
             <span className="exn">
@@ -109,7 +109,8 @@ export function ExerciseGuide({ guide, onClose }: { guide: { name: string; patte
 export function useGuide() {
   const [guide, setGuide] = useState<{ name: string; pattern: string | null } | null>(null);
   return {
-    open: (name: string, pattern: string | null) => setGuide({ name, pattern: pattern ?? patOf(name) }),
+    // The figure is chosen from the exercise name, never from its broad movement pattern.
+    open: (name: string, _pattern?: string | null) => setGuide({ name, pattern: patOf(name) }),
     element: <ExerciseGuide guide={guide} onClose={() => setGuide(null)} />,
   };
 }
