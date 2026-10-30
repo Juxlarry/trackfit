@@ -135,27 +135,44 @@ and would remove that duplication.
   flagged in code comments where they occur.
 - The main JS bundle is about 215 KB gzipped (most of it Firebase). The MVP 1 pages and charts are lazy-loaded.
 
-## Deploying MVP1 (no-cost path)
+## Deploying (no-cost path)
 
-This stack was chosen specifically to avoid putting a card on file before
-the product is validated:
+All free tiers, no card on file:
 
-| Piece | Service | Notes |
+| Piece | Service | Config in this repo |
 |---|---|---|
-| Postgres | [Neon](https://neon.tech) free tier | Run `npm run db:migrate` with `DATABASE_URL` pointing at it |
-| Auth | Firebase Authentication | Enable **Google** and **Email/Password** sign-in in the Firebase console |
-| Backend hosting | Render or Fly.io free tier | Build `backend/`, run `npm run build && npm start` |
-| Web hosting | Firebase Hosting free tier | `npm run build` in `web/`, deploy the `dist/` folder |
+| Auth | Firebase Authentication | none |
+| Postgres | Neon | `backend/sql/*.sql`, applied with `npm run db:migrate` |
+| API | Render free web service | `render.yaml` |
+| Web | Firebase Hosting | `web/firebase.json` |
 
-Backend environment variables to set on the host (see `backend/.env.example`):
-`DATABASE_URL` (Neon connection string), `FIREBASE_PROJECT_ID`,
-`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (from a Firebase service
-account), `PORT`. **Leave `DEV_AUTH_BYPASS` unset.**
+1. **Firebase.** Create a project. Under Authentication, enable **Google** and **Email/Password**. Add a Web app and copy its config (`apiKey`, `authDomain`, `projectId`, `appId`). Under Project settings > Service accounts, generate a private key (a JSON file; keep it out of git).
+2. **Neon.** Create a project and copy the connection string (it ends in `?sslmode=require`). Then run the migrations against it:
+   ```bash
+   cd backend
+   DATABASE_URL="<neon connection string>" npm run db:migrate
+   ```
+   Run this again whenever a new `sql/*.sql` file lands. Render doesn't run migrations.
+3. **Render.** New > Blueprint > this GitHub repo. It reads `render.yaml` and asks for `DATABASE_URL`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (from the service-account JSON) and `APP_URL` (the web address from step 4). Every push to `main` that touches `backend/` redeploys. The free plan sleeps after 15 idle minutes, so the first request after a break takes up to a minute.
+4. **Firebase Hosting.** Create `web/.env.production.local` (git-ignored):
+   ```bash
+   VITE_API_URL="https://trackfit-api.onrender.com/"   # your Render URL
+   VITE_FIREBASE_API_KEY="..."
+   VITE_FIREBASE_AUTH_DOMAIN="<project-id>.firebaseapp.com"
+   VITE_FIREBASE_PROJECT_ID="<project-id>"
+   VITE_FIREBASE_APP_ID="..."
+   VITE_DEV_AUTH_BYPASS="false"
+   ```
+   Then build and deploy:
+   ```bash
+   cd web
+   npm run build
+   firebase deploy --only hosting --project <project-id>
+   ```
+   The production build refuses to run if `VITE_DEV_AUTH_BYPASS` is `"true"` or any of these values is missing. Your local `.env` would otherwise leak into the build. `<project-id>.web.app` is already an authorised domain for sign-in. Add any custom domain under Authentication > Settings.
+5. **Smoke test.** On your phone, open the `web.app` link, sign up with a real email, finish onboarding and log one workout.
 
-Web environment variables (see `web/.env.example`): `VITE_API_URL` (the
-deployed backend URL), `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`,
-`VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` (from the Firebase web
-app config). **Leave `VITE_DEV_AUTH_BYPASS` unset.**
+**Never set `DEV_AUTH_BYPASS` on Render, and never set `VITE_DEV_AUTH_BYPASS` to `"true"` for a deployed build.**
 
 When the product outgrows the free tiers, the modular monolith and
 schema-per-module design are meant to make a move to AWS eu-west-2 (RDS

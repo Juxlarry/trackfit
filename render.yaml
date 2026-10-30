@@ -1,0 +1,33 @@
+# Render blueprint for the TrackFit API (free web service).
+# Render > New > Blueprint > pick this repo. Values marked sync: false are
+# asked for once in the dashboard and never stored in git.
+# Database migrations are run by hand (npm run db:migrate), not on deploy.
+services:
+  - type: web
+    name: trackfit-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    # Web-only changes don't redeploy the API.
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL # Neon connection string (pooled), ends in ?sslmode=require
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY # paste the whole key, including the BEGIN/END lines
+        sync: false
+      - key: APP_URL # e.g. https://trackfit-xxxx.web.app
+        sync: false
+      - key: MAIL_PROVIDER
+        value: console
+      # Never set DEV_AUTH_BYPASS here.
