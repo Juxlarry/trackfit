@@ -769,3 +769,8 @@ a.tab,a.linkbtn,a.li,.back-link{text-decoration:none;color:inherit}
 .top-signin{margin-left:auto;font-size:14px;font-weight:600;color:var(--ink-2);white-space:nowrap;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line)}
 .welcome-alt{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:14.5px;color:var(--ink-2)}
 .welcome-alt a{font-weight:600;color:var(--ink);text-underline-offset:3px}
+.returning{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;padding:18px 20px;border-radius:18px;background:var(--sage);max-width:620px}
+.returning:empty{display:none}
+.returning p{margin:0;font-size:15px;color:var(--ink-2);flex:1 1 260px;max-width:none}
+.returning p b{color:var(--ink)}
+.returning .ghost{text-decoration:none;color:var(--ink);font-weight:600;white-space:nowrap;background:var(--card)}

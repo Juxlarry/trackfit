@@ -28,6 +28,10 @@ export interface StepCtx {
   signedIn: boolean;
   /** Signed in and already has an active plan. */
   hasPlan: boolean;
+  /** Where an unfinished quiz on this device left off, if anywhere. */
+  resume: { id: string; label: string } | null;
+  /** The API couldn't be reached while checking for an existing plan. */
+  apiDown: boolean;
   today: string;
 }
 
@@ -219,13 +223,17 @@ export const STEPS: Step[] = [
           <div><b>6 weeks</b><span>per program cycle</span></div>
           <div><b>2 plans</b><span>training and meals, together</span></div>
         </div>
-        <p className="welcome-alt" style={i(3)}>
-          {c.hasPlan
-            ? <>You already have a plan. <Link to="/today">Open my plan</Link><span aria-hidden="true">·</span>or start again below to build a new one.</>
-            : c.signedIn
-              ? <>You're signed in. Answer the questions to build your plan.</>
-              : <>Already have an account? <Link to="/signin">Sign in</Link></>}
-        </p>
+        <div className="returning" style={i(3)}>
+          {c.apiDown ? (
+            <p>We can't reach TrackFit right now, so we can't check for your plan. Check your connection and refresh.</p>
+          ) : c.hasPlan ? (
+            <><p><b>You already have a plan.</b> Starting again builds a new one; your logged workouts stay.</p><Link className="ghost" to="/today">Open my plan</Link></>
+          ) : c.resume ? (
+            <><p><b>Welcome back.</b> {c.resume.id === "plan" ? "Your answers are done and your plan is waiting." : <>You stopped in the {c.resume.label} section.</>} Your answers are saved on this device.</p><button type="button" className="ghost" onClick={() => c.go(c.resume!.id)}>Continue where I left off</button></>
+          ) : !c.signedIn ? (
+            <><p><b>Already have an account?</b> Sign in to pick up your plan and progress on this device.</p><Link className="ghost" to="/signin">Sign in</Link></>
+          ) : null}
+        </div>
       </div>
     ),
   },

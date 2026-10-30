@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, ArrowRight, Dumbbell, FlaskConical, Moon, Ruler, ShieldCheck, Target, User, Utensils } from "lucide-react";
 import { computeTargets } from "@engine";
-import { useIsSignedIn } from "../auth/AuthContext";
-import { DEV_AUTH_BYPASS } from "../firebase";
+import { useAuth, useIsSignedIn } from "../auth/AuthContext";
+import { DEV_AUTH_BYPASS, authErrorMessage } from "../firebase";
 import { usePlan } from "../hooks/usePlan";
 import { useToast } from "../components/ui/Toast";
 import { localToday } from "../lib/dates";
@@ -78,6 +78,16 @@ function Rail({ step, d, signedIn }: { step: Step; d: Draft; signedIn: boolean }
   );
 }
 
+/** First unanswered question of a quiz started on this device, or null for a fresh start. */
+function resumePoint(d: Draft, signedIn: boolean): { id: string; label: string } | null {
+  if (!d.safety.length) return null;
+  for (const s of STEPS) {
+    if (s.stage < 0 || s.skip?.(d, signedIn)) continue;
+    if (s.valid && !s.valid(d)) return { id: s.id, label: STAGES[s.stage] };
+  }
+  return d.support ? { id: "plan", label: "your plan" } : null;
+}
+
 /**
  * The onboarding quiz at /start/:stepId. Answers live in the draft
  * (localStorage) so a refresh, or the sign-in redirect, never loses them.
@@ -87,7 +97,9 @@ export function OnboardingFlow() {
   const navigate = useNavigate();
   const toast = useToast();
   const signedIn = useIsSignedIn();
-  const { me, plan } = usePlan();
+  const { ready: authReady } = useAuth();
+  const { me, plan, loading: planLoading, error: planError } = usePlan();
+  const [params] = useSearchParams();
   const { draft: d, latest, set, replace } = useOnboarding();
   const submitPlan = useSubmitPlan();
   const today = useMemo(() => localToday(), []);
@@ -125,7 +137,7 @@ export function OnboardingFlow() {
     if (step.id === "start" && signedIn) {
       setBusy(true);
       try { await submit(me?.email ?? null, "existing"); }
-      catch (e) { toast(e instanceof Error ? e.message : "Couldn't save your plan. Try again."); setBusy(false); }
+      catch (e) { toast(authErrorMessage(e)); setBusy(false); }
       return;
     }
     if (step.onNext) { await step.onNext(ctx); return; }
@@ -150,7 +162,11 @@ export function OnboardingFlow() {
     }, reduce() ? 60 : 340);
   };
 
-  const ctx: StepCtx = { d, set, pick, next: () => void next(), go: (id) => goTo(id, -1), signedIn, hasPlan: signedIn && !!plan, today };
+  const resume = useMemo(() => resumePoint(d, signedIn), [d, signedIn]);
+  const ctx: StepCtx = {
+    d, set, pick, next: () => void next(), go: (id) => goTo(id, id === resume?.id ? 1 : -1), signedIn, hasPlan: signedIn && !!plan,
+    resume, apiDown: signedIn && !!planError, today,
+  };
 
   // Enter advances, except in text areas, open sheets and screens without the action bar.
   useEffect(() => {
@@ -166,6 +182,9 @@ export function OnboardingFlow() {
   }, [step, next]);
 
   if (!step) return <Navigate to="/start/welcome" replace />;
+  // A returning user with a plan goes straight into the app, unless they chose to start again.
+  if (step.id === "welcome" && (!authReady || (signedIn && planLoading))) return <p className="boot">Loading…</p>;
+  if (step.id === "welcome" && signedIn && plan && !params.has("redo")) return <Navigate to="/today" replace />;
   // Deep links past the questions need a finished draft.
   if (["build", "plan", "start", "signup"].includes(step.id) && !d.support) return <Navigate to="/start/welcome" replace />;
 

@@ -17,7 +17,7 @@ export function RequirePlan({ children }: { children: ReactNode }) {
   const { ready } = useAuth();
   const { signedIn, loading, plan, error } = usePlan();
   if (!ready || loading) return <p className="boot">Loading your plan…</p>;
-  if (!signedIn) return <Navigate to="/start/welcome" replace />;
+  if (!signedIn) return <Navigate to="/signin" replace />;
   if (error) return <p className="boot">Couldn't reach TrackFit. Check the API is running, then refresh. ({error.message})</p>;
   if (!plan) return <Navigate to="/start/welcome" replace />;
   return <>{children}</>;

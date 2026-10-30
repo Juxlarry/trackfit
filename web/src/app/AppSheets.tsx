@@ -382,7 +382,7 @@ function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: 
         <div className="li"><span className="ic"><Bell /></span><span><span className="t">Workout reminder</span><span className="d" style={{ display: "block" }}>{plan.profile.reminderTime ? `${plan.profile.reminderTime} on training days` : "Off"}</span></span><button type="button" className="linkbtn" onClick={onReminder}>Change</button></div>
       </div>
       <div className="btnrow" style={{ marginTop: 18 }}>
-        <button type="button" className="ghost" onClick={() => { onDone(); navigate("/start/welcome"); }}><Pencil />Change my answers</button>
+        <button type="button" className="ghost" onClick={() => { onDone(); navigate("/start/welcome?redo=1"); }}><Pencil />Change my answers</button>
         <button type="button" className="ghost" onClick={async () => { onDone(); await signOut(); await client.clearStore(); navigate("/signin", { replace: true }); }}><LogOut />Sign out</button>
       </div>
       <p className="fine" style={{ marginTop: 12 }}>Changing your answers builds a new 6-week plan. Your logged workouts, weigh-ins and activities stay.</p>

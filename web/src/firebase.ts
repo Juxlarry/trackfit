@@ -78,5 +78,11 @@ export function authErrorMessage(err: unknown): string {
     "auth/network-request-failed": "No connection. Check your internet and try again.",
     "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
   };
-  return map[code] ?? (err instanceof Error ? err.message : "Something went wrong. Try again.");
+  if (map[code]) return map[code];
+  const msg = err instanceof Error ? err.message : "";
+  if (/ECONNREFUSED|Failed to fetch|NetworkError|Context creation failed|Load failed/i.test(msg)) {
+    console.error(err);
+    return "We couldn't reach TrackFit's server. Your answers are saved on this device, so try again in a moment.";
+  }
+  return msg || "Something went wrong. Try again.";
 }
