@@ -15,7 +15,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["identity", "tracking", "nutrition"]
+  schemas  = ["identity", "tracking", "nutrition", "notifications"]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -40,12 +40,16 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   onboardedAt DateTime?
+  /// IANA time zone from the browser, e.g. "Africa/Accra". Reminder times are local to it.
+  timeZone    String?
 
   weightEntries    WeightEntry[]
   healthScreening  HealthScreening?
   intakeProfile    IntakeProfile?
   dietaryProfile   DietaryProfile?
   programs         GeneratedProgram[]
+  pushSubscriptions PushSubscription[]
+  reminderLog      ReminderLog[]
   nutritionPlans   NutritionPlan[]
   mealEntries      MealEntry[]
   activityLogs     ActivityLog[]
@@ -428,4 +432,45 @@ model MealEntry {
   @@id([userId, entryDate, slotIndex])
   @@schema("nutrition")
   @@map("meal_entries")
+}
+
+// ── Notifications ────────────────────────────────────────────────────────
+
+/// One browser/device that allowed notifications (Web Push).
+model PushSubscription {
+  id         String    @id @default(uuid())
+  userId     String
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastSentAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+  @@schema("notifications")
+}
+
+enum ReminderKind {
+  TRAINING_DAY
+  PLAN_START_EVE
+
+  @@schema("notifications")
+}
+
+/// Each reminder goes out once per user, kind and local date.
+model ReminderLog {
+  userId    String
+  kind      ReminderKind
+  localDate DateTime     @db.Date
+  sentAt    DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, kind, localDate])
+  @@map("reminder_log")
+  @@schema("notifications")
 }

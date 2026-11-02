@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@apollo/client/react";
-import { Camera, CircleAlert, HeartPulse, Lock, Plus, TrendingUp } from "lucide-react";
+import { Camera, CircleAlert, HeartPulse, Loader, Lock, Plus, TrendingUp } from "lucide-react";
 import { addDaysIso, daysBetween, mondayOf } from "@engine";
 import { ACTIVITY_LOGS, LAST_SETS, SESSIONS_BETWEEN, WEIGHT_HISTORY } from "../graphql/operations";
 import type { ActivePlanDto, ActivityDto, SessionSummaryDto } from "../graphql/types";
 import { usePlan, useUnits } from "../hooks/usePlan";
 import { useToast } from "../components/ui/Toast";
 import { DAYS, dayShort, localToday } from "../lib/dates";
-import { MEDIA_SLOTS, checkMediaFile, listMedia, saveMedia, type MediaLabel, type StoredMedia } from "../lib/media";
+import { MEDIA_SLOTS, checkMediaFile, listMedia, mediaErrorMessage, mediaInCloud, releaseMedia, saveMedia, type MediaItem, type MediaLabel } from "../lib/media";
 import { ViewHead } from "./AppLayout";
 import { useSheets } from "./AppSheets";
 import { ActivityRow } from "./TodayPage";
@@ -57,22 +57,29 @@ function WeightChart({ plan, weights, toDisplay }: { plan: ActivePlanDto; weight
 
 function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
   const toast = useToast();
-  const [media, setMedia] = useState<StoredMedia[]>([]);
+  const [media, setMedia] = useState<MediaItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState<MediaLabel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [slot, setSlot] = useState<MediaLabel>("Day 1");
   const input = useRef<HTMLInputElement>(null);
-  const urls = useMemo(() => new Map(media.map((m) => [m.label, URL.createObjectURL(m.blob)])), [media]);
-  useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
-  useEffect(() => { void listMedia().then(setMedia); }, []);
+  useEffect(() => () => releaseMedia(media), [media]);
+  const refresh = async () => {
+    try { setMedia(await listMedia()); } catch { setError("Couldn't load your photos. Check your connection and reopen Progress."); }
+    setLoading(false);
+  };
+  useEffect(() => { void refresh(); }, []);
   const onFile = async (f: File | undefined) => {
+    if (input.current) input.current.value = "";
     if (!f) return;
     const res = await checkMediaFile(f);
     if ("error" in res) { setError(res.error); return; }
-    try { await saveMedia({ label: slot, kind: res.kind, blob: f, savedAt: Date.now() }); } catch { setError("Couldn't save on this device."); return; }
     setError(null);
-    setMedia(await listMedia());
+    setUploading(slot);
+    try { await saveMedia(slot, res.kind, f); } catch (err) { setError(mediaErrorMessage(err)); setUploading(null); return; }
+    await refresh();
+    setUploading(null);
     toast(`${slot} ${res.kind === "video" ? "video" : "photo"} saved.`);
-    if (input.current) input.current.value = "";
   };
   return (
     <>
@@ -81,11 +88,14 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
           const m = media.find((x) => x.label === label);
           const unlock = addDaysIso(plan.startDate, dayOffset);
           const open = unlock <= today;
-          const pick = () => { setSlot(label); input.current?.click(); };
+          const pick = () => { if (uploading) return; setSlot(label); input.current?.click(); };
+          if (uploading === label || (loading && open)) {
+            return <div key={label} className="ph open" aria-busy="true"><Loader style={{ animation: "spin 1s linear infinite" }} /><b>{label}</b>{uploading === label ? "Uploading…" : "Loading…"}</div>;
+          }
           if (m) {
             return (
               <div key={label} className="ph filled open" role="button" tabIndex={0} aria-label={`Replace ${label} ${m.kind}`} onClick={pick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } }}>
-                {m.kind === "video" ? <video src={urls.get(label)} muted playsInline /> : <img src={urls.get(label)} alt={`${label} photo`} />}
+                {m.kind === "video" ? <video src={m.src} muted playsInline preload="metadata" /> : <img src={m.src} alt={`${label} photo`} />}
                 <span className="lbl">{label}</span>
               </div>
             );
@@ -99,7 +109,7 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
       </div>
       <input ref={input} type="file" accept="image/*,video/*" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
       {error && <div className="err" role="alert"><CircleAlert /><span>{error}</span></div>}
-      <p className="help" style={{ marginTop: 10 }}>Photos up to 10 MB. Videos up to 30 seconds and 50 MB. Kept on this device for now.</p>
+      <p className="help" style={{ marginTop: 10 }}>Photos up to 10 MB. Videos up to 30 seconds and 50 MB. {mediaInCloud() ? "Saved to your account, so they show on any device you sign in on." : "Kept on this device (dev mode)."}</p>
     </>
   );
 }

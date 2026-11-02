@@ -22,6 +22,7 @@ Fitness tracker with a personalised onboarding quiz, a generated 6-week training
   - The `planning` module orchestrates onboarding and owns no tables of its own.
 - **Plan engine**: `backend/src/modules/planning/engine` is pure TypeScript with no I/O. The backend uses it to generate plans. The web app imports the same code through the `@engine` Vite alias for live previews in the quiz, so the rules exist once. The seed SQL for exercises and recipes is generated from its catalogue.
 - **Auth**: Firebase Authentication with Google and email/password. The backend verifies ID tokens.
+- **Notifications**: workout reminders as Web Push (VAPID, `web-push`). A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
 - **Email**: a `Mailer` interface. Only `MAIL_PROVIDER=console` (logs the email) exists so far; a real provider is an open item.
 - **Web**: Vite, React 19, Apollo Client 4 and react-router 7. Fonts are Bricolage Grotesque, Onest and JetBrains Mono. The theme is "Sunrise Lime" with light and dark modes.
 
@@ -171,6 +172,11 @@ All free tiers, no card on file:
    ```
    The production build refuses to run if `VITE_DEV_AUTH_BYPASS` is `"true"` or any of these values is missing. Your local `.env` would otherwise leak into the build. `<project-id>.web.app` is already an authorised domain for sign-in. Add any custom domain under Authentication > Settings.
 5. **Smoke test.** On your phone, open the `web.app` link, sign up with a real email, finish onboarding and log one workout.
+6. **Reminders.** Workout reminders are push notifications sent by a job on the API.
+   - Run `npx web-push generate-vapid-keys` once. Put the keys in Render as `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, and set `VAPID_SUBJECT` to `mailto:<your email>`. Keep the private key out of git. Changing the keys later means everyone has to turn notifications on again.
+   - Set `CRON_SECRET` in Render to a long random string (`openssl rand -hex 32`).
+   - The free Render plan sleeps, so something outside has to wake it. At [cron-job.org](https://cron-job.org) (free), create a job: URL `https://<your-render-url>/jobs/reminders`, every 5 minutes, method POST, header `Authorization: Bearer <CRON_SECRET>`. It answers `{"sent":N}`. While awake, the API also checks every 5 minutes by itself; the two never double-send.
+   - On a phone: Profile > Workout reminder > Save and allow notifications, then "Send a test". iPhone needs iOS 16.4+ with TrackFit added to the home screen.
 
 **Never set `DEV_AUTH_BYPASS` on Render, and never set `VITE_DEV_AUTH_BYPASS` to `"true"` for a deployed build.**
 

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { MEAL_SLOTS, buildWeek, generatePlan, startSentence, type MealSlot } from "@engine";
 import { useAuth } from "../auth/AuthContext";
+import { InAppBrowserNote } from "../components/ui/InAppBrowserNote";
 import { DEV_AUTH_BYPASS, authErrorMessage, signInWithGoogle, signUpWithEmail } from "../firebase";
 import { DEV_CREATE_USER } from "../graphql/operations";
 import { AdaptationList, DaysControl, ExerciseList, RangeNote, useGuide } from "../components/plan/PlanBits";
@@ -366,6 +367,7 @@ export function SignUp({ c, submit }: { c: StepCtx; submit: (email: string | nul
       <h1 className="qh">Save <mark>your plan</mark>{firstName(d) ? `, ${firstName(d)}` : ""}.</h1>
       <p className="qs">A free account keeps your plan, workouts and progress safe, and syncs them to your phone.</p>
       <div className="qb">
+        <InAppBrowserNote />
         <div className="auth stagger">
           <button type="button" className="gbtn" style={{ "--i": 0 } as CSSProperties} onClick={google} disabled={!!busy}>
             {busy === "google" ? <span className="spin" aria-hidden="true" /> : <span className="g" aria-hidden="true">G</span>}Continue with Google

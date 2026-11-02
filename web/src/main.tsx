@@ -13,6 +13,9 @@ import { apolloClient } from "./apolloClient";
 import { AuthProvider } from "./auth/AuthContext";
 import { ToastProvider } from "./components/ui/Toast";
 import { OnboardingProvider } from "./onboarding/OnboardingProvider";
+import { registerServiceWorker } from "./lib/pwa";
+
+registerServiceWorker();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

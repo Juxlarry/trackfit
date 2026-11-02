@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useMutation } from "@apollo/client/react";
 import { Activity, ArrowRight, CircleAlert } from "lucide-react";
 import { useAuth, useIsSignedIn } from "../auth/AuthContext";
+import { InAppBrowserNote } from "../components/ui/InAppBrowserNote";
 import { DEV_AUTH_BYPASS, authErrorMessage, signInWithEmail, signInWithGoogle } from "../firebase";
 import { DEV_CREATE_USER } from "../graphql/operations";
 
@@ -62,6 +63,7 @@ export function SignInPage() {
                   </form>
                 ) : (
                   <div className="auth">
+                    <InAppBrowserNote />
                     <button type="button" className="gbtn" disabled={busy} onClick={() => void run(signInWithGoogle)}>
                       <span className="g" aria-hidden="true">G</span>Continue with Google
                     </button>

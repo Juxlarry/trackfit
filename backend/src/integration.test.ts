@@ -15,6 +15,12 @@ const TEST_DB = process.env.TEST_DATABASE_URL;
 if (!TEST_DB) throw new Error("Set TEST_DATABASE_URL to run integration tests.");
 process.env.DATABASE_URL = TEST_DB;
 process.env.DEV_AUTH_BYPASS = "true";
+{
+  const { default: webpush } = await import("web-push");
+  const keys = webpush.generateVAPIDKeys();
+  process.env.VAPID_PUBLIC_KEY = keys.publicKey;
+  process.env.VAPID_PRIVATE_KEY = keys.privateKey;
+}
 
 // Recreate the database before any module opens a pool.
 {
@@ -34,6 +40,9 @@ const { typeDefs, resolvers } = await import("./graphql/schema.js");
 const { pool } = await import("./shared/db/pool.js");
 const { ConsoleMailer, setMailer } = await import("./shared/email/mailer.js");
 const { findUserById } = await import("./modules/identity/identity.repository.js");
+const { setPushSender } = await import("./modules/notifications/push.js");
+const { runReminderJob } = await import("./modules/notifications/reminders.js");
+const { WebPushError } = await import("web-push");
 const { addDaysIso, mondayOf, swapIssue, toIsoDate, weekTypes, weekdayOf } = await import("./modules/planning/engine/index.js");
 
 const mailer = new ConsoleMailer();
@@ -194,6 +203,47 @@ test("start date and reminder", async () => {
   assert.equal(r.setWorkoutReminder.profile.reminderTime, "17:30");
   const badTime = await gql(`mutation{ setWorkoutReminder(time:"5pm"){ programId } }`, {}, jay);
   assert.ok(badTime.errors);
+});
+
+test("push reminders: subscribe, send once per day, drop dead devices", async () => {
+  const pushed: { endpoint: string; msg: any }[] = [];
+  const gone = new Set<string>();
+  setPushSender(async (sub, payload) => {
+    if (gone.has(sub.endpoint)) throw new WebPushError("Gone", 410, {}, "", sub.endpoint);
+    pushed.push({ endpoint: sub.endpoint, msg: JSON.parse(payload) });
+  });
+  const cfg = await ok(`{ pushConfig { publicKey } }`);
+  assert.equal(cfg.pushConfig.publicKey, process.env.VAPID_PUBLIC_KEY);
+  const SUB = `mutation($i:PushSubscriptionInput!){ subscribePush(input:$i) }`;
+  const phone = { endpoint: "https://push.example.com/phone", p256dh: "p", auth: "a", timeZone: "Africa/Accra" };
+  const badTz = await gql(SUB, { i: { ...phone, timeZone: "Mars/Olympus" } }, jay);
+  assert.equal(badTz.errors?.[0].extensions.code, "BAD_USER_INPUT");
+  await ok(SUB, { i: phone }, jay);
+  await ok(SUB, { i: { ...phone, endpoint: "https://push.example.com/laptop" } }, jay);
+
+  // A training day in week 2, so nothing logged earlier in these tests interferes. Accra is UTC+0.
+  const plan = (await ok(`{ myPlan { startDate sessions { weekday name } } }`, {}, jay)).myPlan;
+  const day = [7, 8, 9, 10, 11, 12, 13].map((k) => addDaysIso(plan.startDate, k)).find((d) => plan.sessions.some((s: any) => s.weekday === weekdayOf(d)))!;
+  const name = plan.sessions.find((s: any) => s.weekday === weekdayOf(day)).name;
+  assert.deepEqual(await runReminderJob(new Date(`${day}T17:20:00Z`)), { sent: 0 }, "before the 17:30 reminder time");
+  assert.deepEqual(await runReminderJob(new Date(`${day}T17:35:00Z`)), { sent: 1 });
+  assert.equal(pushed.length, 2, "both devices");
+  assert.equal(pushed[0].msg.title, `${name} today`);
+  assert.deepEqual(await runReminderJob(new Date(`${day}T18:05:00Z`)), { sent: 0 }, "once per day");
+
+  gone.add("https://push.example.com/laptop");
+  pushed.length = 0;
+  const sent = await ok(`mutation{ sendTestPush }`, {}, jay);
+  assert.equal(sent.sendTestPush, 1);
+  const { rows } = await pool.query(`SELECT endpoint FROM notifications.push_subscriptions WHERE user_id = $1`, [jay]);
+  assert.deepEqual(rows.map((r) => r.endpoint), ["https://push.example.com/phone"], "410 Gone removes the device");
+
+  // Signing in on the same browser as someone else moves the device to them.
+  const other = await newUser("Ama");
+  await ok(SUB, { i: phone }, other);
+  assert.equal((await ok(`mutation{ sendTestPush }`, {}, jay)).sendTestPush, 0);
+  await ok(`mutation($e:String!){ unsubscribePush(endpoint:$e) }`, { e: phone.endpoint }, other);
+  assert.equal((await ok(`mutation{ sendTestPush }`, {}, other)).sendTestPush, 0);
 });
 
 test("logging a planned session links it to the template and computes volume", async () => {

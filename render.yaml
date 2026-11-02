@@ -28,6 +28,16 @@ services:
         sync: false
       - key: APP_URL # e.g. https://trackfit-xxxx.web.app
         sync: false
+      # Web Push for reminders: npx web-push generate-vapid-keys
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT # mailto:you@example.com
+        sync: false
+      # External cron sends this to POST /jobs/reminders (README, "Reminders").
+      - key: CRON_SECRET
+        sync: false
       - key: MAIL_PROVIDER
         value: console
       # Never set DEV_AUTH_BYPASS here.

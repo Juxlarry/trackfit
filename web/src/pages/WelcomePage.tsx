@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Activity, ArrowRight, Camera, CircleAlert, Image, Lock, Pencil, RefreshCw, Video } from "lucide-react";
+import { Activity, ArrowRight, Camera, CircleAlert, Image, Loader, Lock, Pencil, RefreshCw, Video } from "lucide-react";
 import { startSentence } from "@engine";
 import { DEV_AUTH_BYPASS, resendVerification } from "../firebase";
 import { usePlan, useUnits } from "../hooks/usePlan";
 import { useToast } from "../components/ui/Toast";
 import { WELCOME_KEY, useOnboarding } from "../onboarding/OnboardingProvider";
 import { readJson } from "../lib/storage";
-import { checkMediaFile, listMedia, saveMedia, type MediaLabel, type StoredMedia } from "../lib/media";
+import { checkMediaFile, listMedia, mediaErrorMessage, releaseMedia, saveMedia, type MediaItem, type MediaLabel } from "../lib/media";
 import { dayShort, localToday } from "../lib/dates";
 
 function Frame({ children, cta, onCta, ctaDisabled }: { children: React.ReactNode; cta: string; onCta: () => void; ctaDisabled?: boolean }) {
@@ -88,50 +88,60 @@ export function WelcomePage() {
   );
 }
 
-/** Upload box with the 10 MB photo / 30 s, 50 MB video limits. Media stays on this device for now. */
-export function MediaUpload({ label, onSaved }: { label: MediaLabel; onSaved?: (m: StoredMedia) => void }) {
-  const [current, setCurrent] = useState<StoredMedia | null>(null);
+/** The item for one slot; frees the blob URLs of the rest. */
+function pickSlot(all: MediaItem[], label: MediaLabel): MediaItem | null {
+  const m = all.find((x) => x.label === label) ?? null;
+  releaseMedia(all.filter((x) => x !== m));
+  return m;
+}
+
+/** Upload box with the 10 MB photo / 30 s, 50 MB video limits. Saved to the user's account (lib/media.ts). */
+export function MediaUpload({ label, onSaved }: { label: MediaLabel; onSaved?: (m: MediaItem) => void }) {
+  const [current, setCurrent] = useState<MediaItem | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { void listMedia().then((all) => setCurrent(all.find((m) => m.label === label) ?? null)); }, [label]);
   useEffect(() => {
-    if (!current) { setUrl(null); return; }
-    const u = URL.createObjectURL(current.blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [current]);
+    listMedia().then((all) => setCurrent(pickSlot(all, label)), () => setError("Couldn't load your photo. Check your connection."));
+  }, [label]);
+  useEffect(() => () => { if (current) releaseMedia([current]); }, [current]);
   const id = `f-media-${label.replace(/\s/g, "")}`;
   const onFile = async (f: File | undefined) => {
     if (!f) return;
     const res = await checkMediaFile(f);
     if ("error" in res) { setError(res.error); return; }
-    const m: StoredMedia = { label, kind: res.kind, blob: f, savedAt: Date.now() };
-    try { await saveMedia(m); } catch { setError("Couldn't save on this device. Check your browser storage settings."); return; }
     setError(null);
-    setCurrent(m);
-    toast(`${label} ${res.kind === "video" ? "video" : "photo"} saved.`);
-    onSaved?.(m);
+    setUploading(true);
+    try {
+      await saveMedia(label, res.kind, f);
+      const m = pickSlot(await listMedia(), label);
+      setCurrent(m);
+      toast(`${label} ${res.kind === "video" ? "video" : "photo"} saved.`);
+      if (m) onSaved?.(m);
+    } catch (err) {
+      setError(mediaErrorMessage(err));
+    }
+    setUploading(false);
     if (input.current) input.current.value = "";
   };
   return (
     <>
-      <label className="drop" htmlFor={id}>
-        <span className="big-ico"><Camera /></span>
-        <b>{current ? "Replace" : "Add"} a photo or short video</b>
+      <label className="drop" htmlFor={id} aria-busy={uploading}>
+        <span className="big-ico">{uploading ? <Loader style={{ animation: "spin 1s linear infinite" }} /> : <Camera />}</span>
+        <b>{uploading ? "Uploading…" : `${current ? "Replace" : "Add"} a photo or short video`}</b>
         <span className="help">Front-facing, good light, same spot each time. Wear what you train in.</span>
         <span className="limits"><span><Image />Photos up to 10 MB</span><span><Video />Videos up to 30 s and 50 MB</span></span>
       </label>
-      <input ref={input} type="file" id={id} accept="image/*,video/*" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
+      <input ref={input} type="file" id={id} accept="image/*,video/*" hidden disabled={uploading} onChange={(e) => void onFile(e.target.files?.[0])} />
       {error && <div className="err" role="alert"><CircleAlert /><span>{error}</span></div>}
-      {current && url && (
+      {current && (
         <div className="media-prev">
-          {current.kind === "video" ? <video src={url} controls muted playsInline /> : <img src={url} alt={`${label} progress photo`} />}
+          {current.kind === "video" ? <video src={current.src} controls muted playsInline /> : <img src={current.src} alt={`${label} progress photo`} />}
           <span className="cap">{label}, {dayShort(new Date(current.savedAt).toISOString().slice(0, 10))}</span>
         </div>
       )}
-      <div className="note"><Lock /><span>Private to you and kept on this device for now. Never shared to clubs or anyone else, and you can replace it any time.</span></div>
+      <div className="note"><Lock /><span>Private to you and saved to your account, so it shows on any device you sign in on. Never shared to clubs or anyone else, and you can replace it any time.</span></div>
     </>
   );
 }
@@ -139,7 +149,7 @@ export function MediaUpload({ label, onSaved }: { label: MediaLabel; onSaved?: (
 export function WelcomePhotoPage() {
   const navigate = useNavigate();
   const [saved, setSaved] = useState(false);
-  useEffect(() => { void listMedia().then((all) => setSaved(all.some((m) => m.label === "Day 1"))); }, []);
+  useEffect(() => { void listMedia().then((all) => { setSaved(all.some((m) => m.label === "Day 1")); releaseMedia(all); }).catch(() => {}); }, []);
   return (
     <Frame cta={saved ? "Save and go to my plan" : "Skip for now"} onCta={() => navigate("/today", { replace: true })}>
       <h1 className="qh">Capture your <mark>starting point</mark>?</h1>

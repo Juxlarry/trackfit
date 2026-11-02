@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// Progress photos (web/src/lib/media.ts). Each user can only touch their own
+// three slots, and uploads must match the limits checkMediaFile enforces.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/progress/{slot} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && slot in ['day-1', 'week-3', 'week-6']
+        && ((request.resource.contentType.matches('image/.*') && request.resource.size <= 10 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*') && request.resource.size <= 50 * 1024 * 1024));
+    }
+  }
+}

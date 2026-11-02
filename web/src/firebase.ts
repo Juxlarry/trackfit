@@ -8,6 +8,7 @@ import {
   signInWithPopup,
   type User,
 } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 /**
  * Firebase Authentication: Google sign-in and email/password with email
@@ -23,6 +24,8 @@ const config: FirebaseOptions = {
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  // Projects created since late 2024 use <project>.firebasestorage.app; older ones <project>.appspot.com.
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebasestorage.app`,
 };
 
 export const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
@@ -35,6 +38,11 @@ export function getFirebaseApp() {
 
 export function getFirebaseAuth() {
   return getAuth(getFirebaseApp());
+}
+
+/** Progress photos (lib/media.ts). Access rules live in web/storage.rules. */
+export function getFirebaseStorage() {
+  return getStorage(getFirebaseApp());
 }
 
 export async function signInWithGoogle(): Promise<User> {

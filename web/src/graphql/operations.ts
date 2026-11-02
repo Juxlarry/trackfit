@@ -310,3 +310,19 @@ export const LOG_PLANNED_SESSION = gql`
 export const UPDATE_UNITS = gql`
   mutation UpdateUnits($units: UnitsPreference!) { updateProfile(input: { units: $units }) { id units } }
 `;
+
+export const PUSH_CONFIG = gql`
+  query PushConfig { pushConfig { publicKey } }
+`;
+
+export const SUBSCRIBE_PUSH = gql`
+  mutation SubscribePush($input: PushSubscriptionInput!) { subscribePush(input: $input) }
+`;
+
+export const UNSUBSCRIBE_PUSH = gql`
+  mutation UnsubscribePush($endpoint: String!) { unsubscribePush(endpoint: $endpoint) }
+`;
+
+export const SEND_TEST_PUSH = gql`
+  mutation SendTestPush { sendTestPush }
+`;

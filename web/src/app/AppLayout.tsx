@@ -1,8 +1,10 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
+import { useApolloClient } from "@apollo/client/react";
 import { Activity, ChartLine, Dumbbell, Sun, Users, Utensils } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { usePlan } from "../hooks/usePlan";
+import { syncPush } from "../lib/push";
 import { AppSheets, useSheets } from "./AppSheets";
 
 const TABS = [
@@ -49,6 +51,8 @@ function Tabs() {
 }
 
 export function AppLayout() {
+  const client = useApolloClient();
+  useEffect(() => { syncPush(client).catch(() => {}); }, [client]);
   return (
     <RequirePlan>
       <AppSheets>

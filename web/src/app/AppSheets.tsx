@@ -1,16 +1,16 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApolloClient, useMutation, useQuery } from "@apollo/client/react";
 import {
-  Activity, ArrowLeftRight, Bell, Bike, CalendarDays, Check, CircleAlert, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
-  Play, Plus, Repeat, Scale, Ship, Target, Trophy, Undo2, Waves, type LucideIcon,
+  Activity, ArrowLeftRight, Bell, BellOff, Bike, CalendarDays, Check, CircleAlert, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
+  Play, Plus, Repeat, Scale, Ship, Smartphone, Target, Trophy, Undo2, Waves, type LucideIcon,
 } from "lucide-react";
 import {
   ACTIVITY_TYPES, CARDIO_LIKE_TO_TYPE, MAX_WEEKLY_SWAPS, ROUTINES, WARMUPS, estimateActivityKcal, swapIssue, weekTypes, weekdayOf, type Effort,
 } from "@engine";
 import { useAuth } from "../auth/AuthContext";
 import {
-  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, SET_REMINDER, SET_START_DATE, SET_TRAINING_DAYS,
+  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, SEND_TEST_PUSH, SET_REMINDER, SET_START_DATE, SET_TRAINING_DAYS,
   SWAP_SESSION_DAYS, UPDATE_UNITS,
 } from "../graphql/operations";
 import type { PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
@@ -20,6 +20,8 @@ import { ChipGroup, OptionList, toggleIn } from "../components/ui/Options";
 import { Sheet } from "../components/ui/Sheet";
 import { useToast } from "../components/ui/Toast";
 import { DAYS_LONG, dayLabel, dayShort, localToday } from "../lib/dates";
+import { useInstall } from "../lib/pwa";
+import { disablePushHere, enablePush, pushStatus, type PushStatus } from "../lib/push";
 import { REFETCH_LOGS, readFlags, sessionOn, sessionsByDate, swapsFor, weekDates, writeFlags } from "./planUtil";
 
 export const ACT_ICON: Record<string, LucideIcon> = {
@@ -215,30 +217,62 @@ function WeighInSheet({ onDone }: { onDone: () => void }) {
 }
 
 const TIMES = ["06:00", "07:00", "12:30", "17:30", "19:00"];
+const PUSH_NOTE: Partial<Record<PushStatus, string>> = {
+  "needs-install": "On iPhone, reminders only work from the home screen. In Safari, tap Share, then Add to Home Screen. Open TrackFit from there and set your reminder again.",
+  "in-app": "This in-app browser can't show notifications. Open TrackFit in Chrome or Safari to get reminders.",
+  unsupported: "This browser can't show notifications. Try Chrome, or Safari on iPhone.",
+  denied: "Notifications are blocked for TrackFit. Allow them in your browser's site settings, then come back here.",
+  "server-off": "Notifications aren't switched on for TrackFit yet. Your time is saved and reminders will start once they are.",
+};
+
 function ReminderSheet({ onDone }: { onDone: () => void }) {
   const toast = useToast();
+  const client = useApolloClient();
   const { plan } = usePlan();
   const [time, setTime] = useState(plan?.profile.reminderTime ?? "");
-  const [save, { loading }] = useMutation(SET_REMINDER, { refetchQueries: [{ query: MY_PLAN }], awaitRefetchQueries: true });
+  const [push, setPush] = useState<PushStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [save] = useMutation(SET_REMINDER, { refetchQueries: [{ query: MY_PLAN }], awaitRefetchQueries: true });
+  const [sendTest, test] = useMutation<{ sendTestPush: number }>(SEND_TEST_PUSH);
+  useEffect(() => { pushStatus(client).then(setPush, () => setPush("unsupported")); }, [client]);
   const before = plan ? localToday() < plan.startDate : false;
+  const turnOn = !!time && push === "off";
   return (
     <>
       <p className="sh-k">Workout reminder</p>
       <h3>When should we nudge you?</h3>
-      <p>We'll send it on training days only.</p>
+      <p>We'll send a notification on training days only.</p>
       <ChipGroup options={[...TIMES.map((t) => ({ value: t, label: t })), { value: "", label: "Off" }]} selected={[time]} onPick={setTime} label="Reminder time" />
       <div className="field" style={{ marginTop: 14, maxWidth: 200 }}>
         <label htmlFor="r-time">Or pick a time</label>
         <input className="txt" type="time" id="r-time" value={time} onChange={(e) => setTime(e.target.value)} />
       </div>
-      {before && <p className="help" style={{ marginTop: 14 }}>We'll also remind you the evening before your plan starts.</p>}
-      <button type="button" className="cta" disabled={loading} onClick={async () => {
+      {before && <p className="help" style={{ marginTop: 14 }}>We'll also remind you at 7 pm the evening before your first session.</p>}
+      {push && PUSH_NOTE[push] && <div className="note" role="note"><BellOff /><span>{PUSH_NOTE[push]}</span></div>}
+      {push === "on" && (
+        <div className="note" role="note">
+          <Bell /><span>Notifications are on for this device. <button type="button" className="linkbtn" disabled={test.loading} onClick={async () => {
+            try {
+              const r = await sendTest();
+              toast(r.data?.sendTestPush ? "Test sent. It should arrive in a few seconds." : "Couldn't reach this device. Turn notifications off and on in your browser, then try again.");
+            } catch { toast("Couldn't send a test. Try again."); }
+          }}>Send a test</button></span>
+        </div>
+      )}
+      <button type="button" className="cta" style={{ marginTop: 18 }} disabled={busy} onClick={async () => {
+        setBusy(true);
         try {
+          // Ask first: Safari only shows the permission prompt straight from a tap.
+          const status = turnOn ? await enablePush(client) : push;
+          if (status) setPush(status);
           await save({ variables: { time: time || null } });
-          toast(time ? `Reminder set for ${time} on training days.` : "Reminders are off.");
+          if (!time) toast("Reminders are off.");
+          else if (status === "on") toast(`Reminder set for ${time} on training days.`);
+          else { toast(`Saved ${time}. Notifications still need turning on.`); setBusy(false); return; }
           onDone();
         } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that. Try again."); }
-      }}>Save reminder</button>
+        setBusy(false);
+      }}>{turnOn ? "Save and allow notifications" : "Save reminder"}</button>
     </>
   );
 }
@@ -346,6 +380,24 @@ function PreviewSheet({ session, date, onGuide, onDone, onSeen }: {
   );
 }
 
+function InstallRow() {
+  const toast = useToast();
+  const state = useInstall();
+  if (state.kind === "installed" || state.kind === "unsupported") return null;
+  const d = {
+    prompt: "Opens from your home screen like any other app",
+    ios: "In Safari, tap Share, then Add to Home Screen",
+    "in-app": state.kind === "in-app" ? `${state.app}'s browser can't install apps. Open this page in Chrome or Safari first.` : "",
+  }[state.kind];
+  return (
+    <div className="li">
+      <span className="ic"><Smartphone /></span>
+      <span><span className="t">Add TrackFit to your home screen</span><span className="d" style={{ display: "block" }}>{d}</span></span>
+      {state.kind === "prompt" ? <button type="button" className="linkbtn" onClick={async () => { if (await state.install()) toast("TrackFit is on your home screen."); }}>Install</button> : <span />}
+    </div>
+  );
+}
+
 function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
@@ -380,10 +432,11 @@ function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: 
           </span>
         </div>
         <div className="li"><span className="ic"><Bell /></span><span><span className="t">Workout reminder</span><span className="d" style={{ display: "block" }}>{plan.profile.reminderTime ? `${plan.profile.reminderTime} on training days` : "Off"}</span></span><button type="button" className="linkbtn" onClick={onReminder}>Change</button></div>
+        <InstallRow />
       </div>
       <div className="btnrow" style={{ marginTop: 18 }}>
         <button type="button" className="ghost" onClick={() => { onDone(); navigate("/start/welcome?redo=1"); }}><Pencil />Change my answers</button>
-        <button type="button" className="ghost" onClick={async () => { onDone(); await signOut(); await client.clearStore(); navigate("/signin", { replace: true }); }}><LogOut />Sign out</button>
+        <button type="button" className="ghost" onClick={async () => { onDone(); await disablePushHere(client).catch(() => {}); await signOut(); await client.clearStore(); navigate("/signin", { replace: true }); }}><LogOut />Sign out</button>
       </div>
       <p className="fine" style={{ marginTop: 12 }}>Changing your answers builds a new 6-week plan. Your logged workouts, weigh-ins and activities stay.</p>
     </>

@@ -7,6 +7,8 @@ export interface GraphQLContext {
   user: UserRow | null;
   /** How the caller signed in. Null in dev-bypass mode. */
   auth?: { emailVerified: boolean; signInProvider: string | null } | null;
+  /** Caller's browser, stored with push subscriptions so people can tell devices apart. */
+  userAgent?: string | null;
 }
 
 const DEV_AUTH_BYPASS = process.env.DEV_AUTH_BYPASS === "true";
