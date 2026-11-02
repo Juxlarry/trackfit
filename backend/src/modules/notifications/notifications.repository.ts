@@ -7,7 +7,24 @@ export interface PushSubscriptionRow {
   auth: string;
 }
 
-export type ReminderKind = "TRAINING_DAY" | "PLAN_START_EVE";
+export type ReminderKind = "TRAINING_DAY" | "PLAN_START_EVE" | "WEIGH_IN" | "PROGRESS_PHOTO" | "MISSED_SESSION";
+
+export interface ReminderPrefsRow { weighIn: boolean; progressPhotos: boolean; missedSession: boolean }
+
+/** No row means everything is on. */
+export async function getReminderPrefs(userId: string): Promise<ReminderPrefsRow> {
+  const { rows } = await pool.query(`SELECT weigh_in, progress_photos, missed_session FROM notifications.reminder_prefs WHERE user_id = $1`, [userId]);
+  const r = rows[0];
+  return r ? { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session } : { weighIn: true, progressPhotos: true, missedSession: true };
+}
+
+export async function setReminderPrefs(userId: string, p: ReminderPrefsRow) {
+  await pool.query(
+    `INSERT INTO notifications.reminder_prefs (user_id, weigh_in, progress_photos, missed_session) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id) DO UPDATE SET weigh_in = $2, progress_photos = $3, missed_session = $4, updated_at = now()`,
+    [userId, p.weighIn, p.progressPhotos, p.missedSession],
+  );
+}
 
 /** A device can only belong to one account: signing in as someone else moves it. */
 export async function upsertPushSubscription(userId: string, s: { endpoint: string; p256dh: string; auth: string; userAgent: string | null }) {
@@ -48,31 +65,42 @@ export interface ReminderCandidate {
   programId: string;
   startDate: string;
   endDate: string;
+  prefs: ReminderPrefsRow;
 }
 
 /** Users who could get a reminder at all: a device to send to, a time zone and an active plan. */
 export async function listReminderCandidates(): Promise<ReminderCandidate[]> {
   const { rows } = await pool.query(
     `SELECT u.id AS user_id, u.time_zone, i.reminder_time, p.id AS program_id,
-            to_char(p.start_date, 'YYYY-MM-DD') AS start_date, to_char(p.end_date, 'YYYY-MM-DD') AS end_date
+            to_char(p.start_date, 'YYYY-MM-DD') AS start_date, to_char(p.end_date, 'YYYY-MM-DD') AS end_date,
+            COALESCE(rp.weigh_in, true) AS weigh_in, COALESCE(rp.progress_photos, true) AS progress_photos,
+            COALESCE(rp.missed_session, true) AS missed_session
        FROM identity.users u
        JOIN tracking.generated_programs p ON p.user_id = u.id AND p.status = 'ACTIVE'
        LEFT JOIN identity.intake_profiles i ON i.user_id = u.id
+       LEFT JOIN notifications.reminder_prefs rp ON rp.user_id = u.id
       WHERE u.time_zone IS NOT NULL
         AND EXISTS (SELECT 1 FROM notifications.push_subscriptions s WHERE s.user_id = u.id)`,
   );
   return rows.map((r) => ({
     userId: r.user_id, timeZone: r.time_zone, reminderTime: r.reminder_time,
     programId: r.program_id, startDate: r.start_date, endDate: r.end_date,
+    prefs: { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session },
   }));
 }
 
-export async function workoutLoggedOn(userId: string, timeZone: string, localDate: string): Promise<boolean> {
+export interface ReminderFacts { loggedToday: boolean; loggedYesterday: boolean; weighedRecently: boolean }
+
+/** What the user already did, by their local calendar: workouts today/yesterday, a weigh-in in the last 3 days. */
+export async function reminderFacts(userId: string, timeZone: string, localDate: string): Promise<ReminderFacts> {
   const { rows } = await pool.query(
-    `SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date LIMIT 1`,
+    `SELECT
+       EXISTS (SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date) AS logged_today,
+       EXISTS (SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date - 1) AS logged_yesterday,
+       EXISTS (SELECT 1 FROM tracking.weight_entries WHERE user_id = $1 AND (recorded_at AT TIME ZONE $2)::date BETWEEN $3::date - 2 AND $3::date) AS weighed_recently`,
     [userId, timeZone, localDate],
   );
-  return rows.length > 0;
+  return { loggedToday: rows[0].logged_today, loggedYesterday: rows[0].logged_yesterday, weighedRecently: rows[0].weighed_recently };
 }
 
 /** Records the reminder before sending. False when another run already claimed it. */

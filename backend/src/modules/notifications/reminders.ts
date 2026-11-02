@@ -1,15 +1,23 @@
-import { addDaysIso, mondayOf, swappedOrder, weekdayOf, type DaySwap } from "../planning/engine/index.js";
+import { addDaysIso, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap } from "../planning/engine/index.js";
 import { listActiveSessions, listScheduleSwaps, type ScheduleSwapRow } from "../planning/planning.repository.js";
 import {
-  claimReminder, listReminderCandidates, releaseReminder, workoutLoggedOn, type ReminderCandidate, type ReminderKind,
+  claimReminder, listReminderCandidates, reminderFacts, releaseReminder, type ReminderCandidate, type ReminderFacts, type ReminderKind, type ReminderPrefsRow,
 } from "./notifications.repository.js";
 import { pushPublicKey, sendPushToUser, type PushMessage } from "./push.js";
 
 /**
- * Workout reminders, sent as push notifications:
+ * Reminders, sent as push notifications (times are the user's local time):
  *  - TRAINING_DAY at the user's reminder time, on days with a session,
  *    unless they've already logged a workout that day.
  *  - PLAN_START_EVE at 19:00 the evening before their first session.
+ *  - WEIGH_IN at 07:30 on days 7, 14, 21, 28 and 35 of the plan, unless they
+ *    weighed in during the last 3 days. On days 14 and 35 it also says the
+ *    Week 3 / Week 6 photo slot is open, so that morning is one notification.
+ *  - PROGRESS_PHOTO at 07:30 on days 14 and 35, only when the weigh-in
+ *    reminder is off or not needed.
+ *  - MISSED_SESSION at 08:00 the day after a planned session with no workout
+ *    logged.
+ * The last three can each be turned off (notifications.reminder_prefs).
  *
  * runReminderJob is called every few minutes (in-process timer, plus an
  * external cron hitting POST /jobs/reminders so a sleeping server wakes up).
@@ -18,6 +26,10 @@ import { pushPublicKey, sendPushToUser, type PushMessage } from "./push.js";
  */
 export const WINDOW_MIN = 90;
 const EVE_MINUTES = 19 * 60;
+const MORNING_MINUTES = 7 * 60 + 30;
+const MISSED_MINUTES = 8 * 60;
+const WEIGH_IN_DAYS = [7, 14, 21, 28, 35];
+const PHOTO_DAYS: Record<number, string> = { 14: "Week 3", 35: "Week 6" };
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export interface LocalNow { date: string; minutes: number }
@@ -42,8 +54,12 @@ export function isValidTimeZone(tz: string): boolean {
 const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 const inWindow = (minutes: number, from: number) => minutes >= from && minutes < from + WINDOW_MIN;
 
+export type ReminderPrefs = ReminderPrefsRow;
+export const DEFAULT_PREFS: ReminderPrefs = { weighIn: true, progressPhotos: true, missedSession: true };
+
 export interface ReminderPlan {
   reminderTime: string | null;
+  prefs: ReminderPrefs;
   startDate: string;
   endDate: string;
   sessions: { weekday: number; name: string }[];
@@ -59,11 +75,15 @@ export function sessionOn(plan: ReminderPlan, iso: string) {
 
 export interface DueReminder { kind: ReminderKind; msg: PushMessage }
 
-/** Which reminders are due right now. Pure, so it's unit-tested; the job adds the "already logged" check. */
-export function dueReminders(plan: ReminderPlan, now: LocalNow): DueReminder[] {
+const NO_FACTS: ReminderFacts = { loggedToday: false, loggedYesterday: false, weighedRecently: false };
+
+/** Which reminders are due right now. Pure, so it's unit-tested; the job looks up the facts. */
+export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderFacts = NO_FACTS): DueReminder[] {
   const due: DueReminder[] = [];
-  const inPlan = now.date >= plan.startDate && now.date <= plan.endDate;
-  if (plan.reminderTime && inPlan && inWindow(now.minutes, toMinutes(plan.reminderTime))) {
+  const inPlan = (iso: string) => iso >= plan.startDate && iso <= plan.endDate;
+  const day = daysBetween(plan.startDate, now.date);
+
+  if (plan.reminderTime && inPlan(now.date) && inWindow(now.minutes, toMinutes(plan.reminderTime)) && !facts.loggedToday) {
     const s = sessionOn(plan, now.date);
     if (s) {
       due.push({
@@ -72,6 +92,7 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow): DueReminder[] {
       });
     }
   }
+
   if (inWindow(now.minutes, EVE_MINUTES)) {
     const tomorrow = addDaysIso(now.date, 1);
     let first: string | null = null;
@@ -84,12 +105,44 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow): DueReminder[] {
       });
     }
   }
+
+  if (inWindow(now.minutes, MORNING_MINUTES)) {
+    const weigh = plan.prefs.weighIn && WEIGH_IN_DAYS.includes(day) && !facts.weighedRecently;
+    const photo = plan.prefs.progressPhotos ? PHOTO_DAYS[day] : undefined;
+    if (weigh) {
+      due.push({
+        kind: "WEIGH_IN",
+        msg: photo
+          ? { title: `Weigh-in day, and your ${photo} photo`, body: "Weigh in before breakfast, then take your photo in the same spot and light as Day 1.", url: "/progress", tag: `weigh-${now.date}` }
+          : { title: "Weigh-in day", body: "Step on the scale before breakfast, after the bathroom. It keeps your 7-day average honest.", url: "/today", tag: `weigh-${now.date}` },
+      });
+    } else if (photo) {
+      due.push({
+        kind: "PROGRESS_PHOTO",
+        msg: { title: `Your ${photo} photo slot is open`, body: "Same spot, same light as Day 1. It takes 30 seconds.", url: "/progress", tag: `photo-${now.date}` },
+      });
+    }
+  }
+
+  if (plan.prefs.missedSession && inWindow(now.minutes, MISSED_MINUTES) && !facts.loggedYesterday) {
+    const yesterday = addDaysIso(now.date, -1);
+    const s = inPlan(yesterday) ? sessionOn(plan, yesterday) : undefined;
+    if (s) {
+      due.push({
+        kind: "MISSED_SESSION",
+        msg: { title: `Missed ${s.name} yesterday?`, body: "No stress. One missed day doesn't undo your progress. Just pick up with your next session.", url: "/today", tag: `missed-${now.date}` },
+      });
+    }
+  }
   return due;
 }
 
 /** Cheap check before loading the plan: could anything be due at this local time? */
 function maybeDue(c: ReminderCandidate, now: LocalNow): boolean {
-  if (inWindow(now.minutes, EVE_MINUTES) && now.date < addDaysIso(c.startDate, 7)) return true;
+  const day = daysBetween(c.startDate, now.date);
+  if (inWindow(now.minutes, EVE_MINUTES) && day < 7) return true;
+  if (inWindow(now.minutes, MORNING_MINUTES) && (c.prefs.weighIn || c.prefs.progressPhotos) && WEIGH_IN_DAYS.includes(day)) return true;
+  if (inWindow(now.minutes, MISSED_MINUTES) && c.prefs.missedSession && day >= 1 && now.date <= addDaysIso(c.endDate, 1)) return true;
   return !!c.reminderTime && inWindow(now.minutes, toMinutes(c.reminderTime)) && now.date >= c.startDate && now.date <= c.endDate;
 }
 
@@ -105,9 +158,10 @@ export async function runReminderJob(at = new Date()): Promise<{ sent: number; s
       try {
         const now = localNow(at, c.timeZone);
         if (!maybeDue(c, now)) continue;
-        const [sessions, swaps] = await Promise.all([listActiveSessions(c.programId), listScheduleSwaps(c.programId)]);
-        for (const r of dueReminders({ ...c, sessions, swaps }, now)) {
-          if (r.kind === "TRAINING_DAY" && (await workoutLoggedOn(c.userId, c.timeZone, now.date))) continue;
+        const [sessions, swaps, facts] = await Promise.all([
+          listActiveSessions(c.programId), listScheduleSwaps(c.programId), reminderFacts(c.userId, c.timeZone, now.date),
+        ]);
+        for (const r of dueReminders({ ...c, sessions, swaps }, now, facts)) {
           if (!(await claimReminder(c.userId, r.kind, now.date))) continue;
           const delivered = await sendPushToUser(c.userId, r.msg);
           if (delivered) sent += 1;

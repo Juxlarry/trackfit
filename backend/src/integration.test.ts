@@ -231,6 +231,17 @@ test("push reminders: subscribe, send once per day, drop dead devices", async ()
   assert.equal(pushed[0].msg.title, `${name} today`);
   assert.deepEqual(await runReminderJob(new Date(`${day}T18:05:00Z`)), { sent: 0 }, "once per day");
 
+  // Optional reminders: on by default, each switchable. Day 7 at 07:35 Accra is a weigh-in morning.
+  const PREFS = `{ reminderPrefs { weighIn progressPhotos missedSession } }`;
+  assert.deepEqual((await ok(PREFS, {}, jay)).reminderPrefs, { weighIn: true, progressPhotos: true, missedSession: true });
+  const day7 = addDaysIso(plan.startDate, 7);
+  await ok(`mutation($i:ReminderPrefsInput!){ setReminderPrefs(input:$i){ weighIn } }`, { i: { weighIn: false, progressPhotos: true, missedSession: true } }, jay);
+  assert.deepEqual(await runReminderJob(new Date(`${day7}T07:35:00Z`)), { sent: 0 }, "weigh-in reminder turned off");
+  await ok(`mutation($i:ReminderPrefsInput!){ setReminderPrefs(input:$i){ weighIn } }`, { i: { weighIn: true, progressPhotos: true, missedSession: true } }, jay);
+  pushed.length = 0;
+  assert.deepEqual(await runReminderJob(new Date(`${day7}T07:40:00Z`)), { sent: 1 });
+  assert.equal(pushed[0].msg.title, "Weigh-in day");
+
   gone.add("https://push.example.com/laptop");
   pushed.length = 0;
   const sent = await ok(`mutation{ sendTestPush }`, {}, jay);

@@ -50,6 +50,7 @@ model User {
   programs         GeneratedProgram[]
   pushSubscriptions PushSubscription[]
   reminderLog      ReminderLog[]
+  reminderPrefs    ReminderPrefs?
   nutritionPlans   NutritionPlan[]
   mealEntries      MealEntry[]
   activityLogs     ActivityLog[]
@@ -457,6 +458,9 @@ model PushSubscription {
 enum ReminderKind {
   TRAINING_DAY
   PLAN_START_EVE
+  WEIGH_IN
+  PROGRESS_PHOTO
+  MISSED_SESSION
 
   @@schema("notifications")
 }
@@ -472,5 +476,19 @@ model ReminderLog {
 
   @@id([userId, kind, localDate])
   @@map("reminder_log")
+  @@schema("notifications")
+}
+
+/// Switches for the optional reminders. No row means all on.
+model ReminderPrefs {
+  userId         String   @id
+  weighIn        Boolean  @default(true)
+  progressPhotos Boolean  @default(true)
+  missedSession  Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reminder_prefs")
   @@schema("notifications")
 }

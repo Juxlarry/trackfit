@@ -22,7 +22,7 @@ Fitness tracker with a personalised onboarding quiz, a generated 6-week training
   - The `planning` module orchestrates onboarding and owns no tables of its own.
 - **Plan engine**: `backend/src/modules/planning/engine` is pure TypeScript with no I/O. The backend uses it to generate plans. The web app imports the same code through the `@engine` Vite alias for live previews in the quiz, so the rules exist once. The seed SQL for exercises and recipes is generated from its catalogue.
 - **Auth**: Firebase Authentication with Google and email/password. The backend verifies ID tokens.
-- **Notifications**: workout reminders as Web Push (VAPID, `web-push`). A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
+- **Notifications**: reminders as Web Push (VAPID, `web-push`): training days, the evening before the plan starts, weekly weigh-ins, Week 3/6 photo slots and missed sessions (the last three switchable, `notifications.reminder_prefs`). Rules and times are at the top of `backend/src/modules/notifications/reminders.ts`. A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
 - **Email**: a `Mailer` interface. Only `MAIL_PROVIDER=console` (logs the email) exists so far; a real provider is an open item.
 - **Web**: Vite, React 19, Apollo Client 4 and react-router 7. Fonts are Bricolage Grotesque, Onest and JetBrains Mono. The theme is "Sunrise Lime" with light and dark modes.
 

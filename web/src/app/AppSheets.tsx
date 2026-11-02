@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useNavigate } from "react-router-dom";
 import { useApolloClient, useMutation, useQuery } from "@apollo/client/react";
 import {
-  Activity, ArrowLeftRight, Bell, BellOff, Bike, CalendarDays, Check, CircleAlert, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
+  Activity, ArrowLeftRight, Bell, BellOff, Bike, CalendarDays, CalendarX, Camera, Check, CircleAlert, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
   Play, Plus, Repeat, Scale, Ship, Smartphone, Target, Trophy, Undo2, Waves, type LucideIcon,
 } from "lucide-react";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@engine";
 import { useAuth } from "../auth/AuthContext";
 import {
-  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, SEND_TEST_PUSH, SET_REMINDER, SET_START_DATE, SET_TRAINING_DAYS,
+  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, REMINDER_PREFS, SEND_TEST_PUSH, SET_REMINDER, SET_REMINDER_PREFS, SET_START_DATE, SET_TRAINING_DAYS,
   SWAP_SESSION_DAYS, UPDATE_UNITS,
 } from "../graphql/operations";
 import type { PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
@@ -79,7 +79,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
         {open?.t === "activity" && <ActivitySheet kind={open.kind} date={open.date} onPick={(k) => swapTo({ t: "activity", kind: k, date: open.date })} onDone={close} />}
       </Sheet>
       <Sheet open={open?.t === "weigh"} onClose={close} label="Log your weigh-in">{open?.t === "weigh" && <WeighInSheet onDone={close} />}</Sheet>
-      <Sheet open={open?.t === "reminder"} onClose={close} label="Workout reminder">{open?.t === "reminder" && <ReminderSheet onDone={close} />}</Sheet>
+      <Sheet open={open?.t === "reminder"} onClose={close} label="Reminders">{open?.t === "reminder" && <ReminderSheet onDone={close} />}</Sheet>
       <Sheet open={open?.t === "audit"} onClose={close} label="Meal audit">{open?.t === "audit" && <AuditSheet onDone={() => { bump(); close(); }} />}</Sheet>
       <Sheet open={open?.t === "profile"} onClose={close} label="Profile and settings">
         {open?.t === "profile" && <ProfileSheet onReminder={() => swapTo({ t: "reminder" })} onDone={close} />}
@@ -225,6 +225,14 @@ const PUSH_NOTE: Partial<Record<PushStatus, string>> = {
   "server-off": "Notifications aren't switched on for TrackFit yet. Your time is saved and reminders will start once they are.",
 };
 
+type PrefKey = "weighIn" | "progressPhotos" | "missedSession";
+type Prefs = Record<PrefKey, boolean>;
+const PREF_OPTIONS: { value: PrefKey; label: string; desc: string; icon: LucideIcon }[] = [
+  { value: "weighIn", label: "Weekly weigh-in", desc: "7:30 am, once a week", icon: Scale },
+  { value: "progressPhotos", label: "Progress photos", desc: "7:30 am when your Week 3 and Week 6 slots open", icon: Camera },
+  { value: "missedSession", label: "Missed sessions", desc: "8 am the day after, a gentle nudge", icon: CalendarX },
+];
+
 function ReminderSheet({ onDone }: { onDone: () => void }) {
   const toast = useToast();
   const client = useApolloClient();
@@ -234,13 +242,18 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [save] = useMutation(SET_REMINDER, { refetchQueries: [{ query: MY_PLAN }], awaitRefetchQueries: true });
   const [sendTest, test] = useMutation<{ sendTestPush: number }>(SEND_TEST_PUSH);
+  const prefsQ = useQuery<{ reminderPrefs: Prefs }>(REMINDER_PREFS);
+  const [savePrefs] = useMutation(SET_REMINDER_PREFS, { refetchQueries: [{ query: REMINDER_PREFS }] });
+  const [picked, setPicked] = useState<PrefKey[] | null>(null);
+  const saved = prefsQ.data?.reminderPrefs;
+  const extras = picked ?? (saved ? PREF_OPTIONS.map((o) => o.value).filter((k) => saved[k]) : []);
   useEffect(() => { pushStatus(client).then(setPush, () => setPush("unsupported")); }, [client]);
   const before = plan ? localToday() < plan.startDate : false;
-  const turnOn = !!time && push === "off";
+  const turnOn = (!!time || extras.length > 0) && push === "off";
   return (
     <>
-      <p className="sh-k">Workout reminder</p>
-      <h3>When should we nudge you?</h3>
+      <p className="sh-k">Reminders</p>
+      <h3>When should we nudge you to train?</h3>
       <p>We'll send a notification on training days only.</p>
       <ChipGroup options={[...TIMES.map((t) => ({ value: t, label: t })), { value: "", label: "Off" }]} selected={[time]} onPick={setTime} label="Reminder time" />
       <div className="field" style={{ marginTop: 14, maxWidth: 200 }}>
@@ -248,6 +261,8 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
         <input className="txt" type="time" id="r-time" value={time} onChange={(e) => setTime(e.target.value)} />
       </div>
       {before && <p className="help" style={{ marginTop: 14 }}>We'll also remind you at 7 pm the evening before your first session.</p>}
+      <p className="sh-k" style={{ marginTop: 22 }}>Also remind me about</p>
+      <OptionList multi label="Other reminders" options={PREF_OPTIONS} selected={extras} onPick={(v) => setPicked(toggleIn(extras, v))} />
       {push && PUSH_NOTE[push] && <div className="note" role="note"><BellOff /><span>{PUSH_NOTE[push]}</span></div>}
       {push === "on" && (
         <div className="note" role="note">
@@ -266,13 +281,15 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
           const status = turnOn ? await enablePush(client) : push;
           if (status) setPush(status);
           await save({ variables: { time: time || null } });
-          if (!time) toast("Reminders are off.");
-          else if (status === "on") toast(`Reminder set for ${time} on training days.`);
-          else { toast(`Saved ${time}. Notifications still need turning on.`); setBusy(false); return; }
+          if (picked) await savePrefs({ variables: { input: Object.fromEntries(PREF_OPTIONS.map((o) => [o.value, picked.includes(o.value)])) } });
+          if (!time && !extras.length) toast("Reminders are off.");
+          else if (!time && status === "on") toast("Workout reminder is off. Your other reminders are on.");
+          else if (status === "on") toast(`Reminders saved. Workouts at ${time} on training days.`);
+          else { toast("Saved. Notifications still need turning on for this device."); setBusy(false); return; }
           onDone();
         } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that. Try again."); }
         setBusy(false);
-      }}>{turnOn ? "Save and allow notifications" : "Save reminder"}</button>
+      }}>{turnOn ? "Save and allow notifications" : "Save reminders"}</button>
     </>
   );
 }
@@ -431,7 +448,7 @@ function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: 
             ))}
           </span>
         </div>
-        <div className="li"><span className="ic"><Bell /></span><span><span className="t">Workout reminder</span><span className="d" style={{ display: "block" }}>{plan.profile.reminderTime ? `${plan.profile.reminderTime} on training days` : "Off"}</span></span><button type="button" className="linkbtn" onClick={onReminder}>Change</button></div>
+        <div className="li"><span className="ic"><Bell /></span><span><span className="t">Reminders</span><span className="d" style={{ display: "block" }}>{plan.profile.reminderTime ? `Workouts at ${plan.profile.reminderTime} on training days` : "Workout reminder off"}</span></span><button type="button" className="linkbtn" onClick={onReminder}>Change</button></div>
         <InstallRow />
       </div>
       <div className="btnrow" style={{ marginTop: 18 }}>

@@ -326,3 +326,11 @@ export const UNSUBSCRIBE_PUSH = gql`
 export const SEND_TEST_PUSH = gql`
   mutation SendTestPush { sendTestPush }
 `;
+
+export const REMINDER_PREFS = gql`
+  query ReminderPrefs { reminderPrefs { weighIn progressPhotos missedSession } }
+`;
+
+export const SET_REMINDER_PREFS = gql`
+  mutation SetReminderPrefs($input: ReminderPrefsInput!) { setReminderPrefs(input: $input) { weighIn progressPhotos missedSession } }
+`;
