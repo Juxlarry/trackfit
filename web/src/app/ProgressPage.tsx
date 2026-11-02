@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@apollo/client/react";
-import { Camera, CircleAlert, HeartPulse, Loader, Lock, Plus, TrendingUp } from "lucide-react";
+import { Camera, CircleAlert, HeartPulse, Loader, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
 import { addDaysIso, daysBetween, mondayOf } from "@engine";
 import { ACTIVITY_LOGS, LAST_SETS, SESSIONS_BETWEEN, WEIGHT_HISTORY } from "../graphql/operations";
 import type { ActivePlanDto, ActivityDto, SessionSummaryDto } from "../graphql/types";
 import { usePlan, useUnits } from "../hooks/usePlan";
 import { useToast } from "../components/ui/Toast";
 import { DAYS, dayShort, localToday } from "../lib/dates";
-import { MEDIA_SLOTS, checkMediaFile, listMedia, mediaErrorMessage, mediaInCloud, releaseMedia, saveMedia, type MediaItem, type MediaLabel } from "../lib/media";
+import { MEDIA_SLOTS, checkMediaFile, deleteMedia, listMedia, mediaErrorMessage, mediaInCloud, releaseMedia, saveMedia, type MediaItem, type MediaLabel } from "../lib/media";
 import { ViewHead } from "./AppLayout";
 import { useSheets } from "./AppSheets";
 import { ActivityRow } from "./TodayPage";
@@ -62,13 +62,12 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
   const [uploading, setUploading] = useState<MediaLabel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [slot, setSlot] = useState<MediaLabel>("Day 1");
+  const [confirming, setConfirming] = useState<MediaLabel | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => releaseMedia(media), [media]);
-  const refresh = async () => {
-    try { setMedia(await listMedia()); } catch { setError("Couldn't load your photos. Check your connection and reopen Progress."); }
-    setLoading(false);
-  };
-  useEffect(() => { void refresh(); }, []);
+  const loadFailed = () => setError("Couldn't load your photos. Check your connection and reopen Progress.");
+  useEffect(() => { listMedia().then(setMedia, loadFailed).finally(() => setLoading(false)); }, []);
+  const refresh = () => listMedia().then(setMedia, loadFailed);
   const onFile = async (f: File | undefined) => {
     if (input.current) input.current.value = "";
     if (!f) return;
@@ -80,6 +79,14 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
     await refresh();
     setUploading(null);
     toast(`${slot} ${res.kind === "video" ? "video" : "photo"} saved.`);
+  };
+  // Two taps: the first arms the button, so a stray tap can't delete a photo.
+  const remove = async (m: MediaItem) => {
+    if (confirming !== m.label) { setConfirming(m.label); return; }
+    setConfirming(null);
+    try { await deleteMedia(m.label); } catch (err) { setError(mediaErrorMessage(err)); return; }
+    await refresh();
+    toast(`${m.label} ${m.kind === "video" ? "video" : "photo"} deleted.`);
   };
   return (
     <>
@@ -94,9 +101,14 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
           }
           if (m) {
             return (
-              <div key={label} className="ph filled open" role="button" tabIndex={0} aria-label={`Replace ${label} ${m.kind}`} onClick={pick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } }}>
+              <div key={label} className="ph filled open">
                 {m.kind === "video" ? <video src={m.src} muted playsInline preload="metadata" /> : <img src={m.src} alt={`${label} photo`} />}
+                <button type="button" className="ph-hit" aria-label={`Replace ${label} ${m.kind}`} onClick={pick} />
                 <span className="lbl">{label}</span>
+                <button type="button" className={`ph-del${confirming === label ? " armed" : ""}`} aria-label={confirming === label ? `Tap again to delete ${label} ${m.kind}` : `Delete ${label} ${m.kind}`}
+                  onClick={() => void remove(m)} onBlur={() => setConfirming((c) => (c === label ? null : c))}>
+                  <Trash2 />{confirming === label && <span>Delete?</span>}
+                </button>
               </div>
             );
           }

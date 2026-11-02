@@ -581,6 +581,10 @@ button.li:hover .t{text-decoration:underline;text-underline-offset:3px;text-deco
 .ph.open{cursor:pointer;transition:border-color .25s,background .25s}
 .ph.open:hover{border-color:var(--ink-3);background:var(--card)}
 .ph b{color:var(--ink);font-size:13px}
+.ph-hit{position:absolute;inset:0;z-index:1;border-radius:inherit}
+.ph-del{position:absolute;top:6px;right:6px;z-index:2;display:flex;align-items:center;gap:4px;min-width:32px;height:32px;justify-content:center;padding:0 8px;border-radius:var(--r-pill);background:color-mix(in srgb,var(--sel-bg) 78%,transparent);color:var(--sel-fg);font-size:11.5px;font-weight:600}
+.ph-del svg{width:15px;height:15px}
+.ph-del.armed{background:#B4391C;color:#fff}
 .ph svg{width:20px;height:20px}
 .heat{display:grid;grid-template-columns:auto repeat(7,minmax(0,1fr));gap:4px;font-size:10.5px;color:var(--ink-3);align-items:center}
 .heat i{aspect-ratio:1;border-radius:5px;background:var(--sunk);display:block}

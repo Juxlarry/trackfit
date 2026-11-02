@@ -8,7 +8,6 @@ import {
   signInWithPopup,
   type User,
 } from "firebase/auth";
-import { getStorage } from "firebase/storage";
 
 /**
  * Firebase Authentication: Google sign-in and email/password with email
@@ -38,11 +37,6 @@ export function getFirebaseApp() {
 
 export function getFirebaseAuth() {
   return getAuth(getFirebaseApp());
-}
-
-/** Progress photos (lib/media.ts). Access rules live in web/storage.rules. */
-export function getFirebaseStorage() {
-  return getStorage(getFirebaseApp());
 }
 
 export async function signInWithGoogle(): Promise<User> {

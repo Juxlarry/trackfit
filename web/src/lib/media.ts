@@ -1,5 +1,4 @@
-import { getDownloadURL, getMetadata, ref, uploadBytes } from "firebase/storage";
-import { getFirebaseAuth, getFirebaseStorage } from "../firebase";
+import { getFirebaseApp, getFirebaseAuth } from "../firebase";
 
 /**
  * Progress photos and videos.
@@ -48,10 +47,18 @@ export const mediaInCloud = () => cloudUid() !== null;
 
 // ── Firebase Storage ────────────────────────────────────────────────────
 
+// Loaded on first use so the Storage SDK stays out of the first download
+// (a static import gets hoisted into the shared chunk). Rules: web/storage.rules.
+async function storage() {
+  const sdk = await import("firebase/storage");
+  return { ...sdk, bucket: sdk.getStorage(getFirebaseApp()) };
+}
+
 const slotPath = (uid: string, label: MediaLabel) => `users/${uid}/progress/${label.toLowerCase().replace(" ", "-")}`;
 
 async function uploadCloud(uid: string, label: MediaLabel, kind: "image" | "video", blob: Blob): Promise<void> {
-  await uploadBytes(ref(getFirebaseStorage(), slotPath(uid, label)), blob, {
+  const { bucket, ref, uploadBytes } = await storage();
+  await uploadBytes(ref(bucket, slotPath(uid, label)), blob, {
     contentType: blob.type || (kind === "video" ? "video/mp4" : "image/jpeg"),
     // Same path on replace, so make browsers revalidate instead of showing the old photo.
     cacheControl: "private, no-cache",
@@ -59,9 +66,10 @@ async function uploadCloud(uid: string, label: MediaLabel, kind: "image" | "vide
 }
 
 async function listCloud(uid: string): Promise<MediaItem[]> {
+  const { bucket, ref, getMetadata, getDownloadURL } = await storage();
   const found = await Promise.all(
     MEDIA_SLOTS.map(async ({ label }): Promise<MediaItem | null> => {
-      const r = ref(getFirebaseStorage(), slotPath(uid, label));
+      const r = ref(bucket, slotPath(uid, label));
       try {
         const [meta, src] = await Promise.all([getMetadata(r), getDownloadURL(r)]);
         return { label, kind: meta.contentType?.startsWith("video/") ? "video" : "image", src, savedAt: Date.parse(meta.updated) };
@@ -148,6 +156,15 @@ export async function listMedia(): Promise<MediaItem[]> {
 
 export function releaseMedia(items: MediaItem[]): void {
   for (const m of items) if (m.src.startsWith("blob:")) URL.revokeObjectURL(m.src);
+}
+
+export async function deleteMedia(label: MediaLabel): Promise<void> {
+  const uid = cloudUid();
+  if (uid) {
+    const { bucket, ref, deleteObject } = await storage();
+    await deleteObject(ref(bucket, slotPath(uid, label)));
+  }
+  else await tx("readwrite", (s) => s.delete(label));
 }
 
 /** Plain-language messages for the Storage errors users actually hit. */

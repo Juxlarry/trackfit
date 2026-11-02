@@ -187,12 +187,8 @@ rewrite.
 
 ## Source control
 
-This repo was built in a sandboxed environment with no authenticated GitHub
-access (`gh auth status` fails there), so it's being delivered as a local
-git repository (already initialized, with history) rather than pushed to a
-remote. To push it:
+The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/trackfit). `main` is what's deployed:
 
-```bash
-git remote add origin <your-repo-url>
-git push -u origin main
-```
+- **API**: Render redeploys on every push to `main` that touches `backend/`. New `backend/sql/*.sql` files still need `npm run db:migrate` against Neon *before* pushing.
+- **Web**: not deployed from GitHub. Build and run `firebase deploy` from `web/` (step 4 above).
+- **CI**: `.github/workflows/ci.yml` type-checks and tests both apps on every push and pull request.

@@ -9,9 +9,8 @@ import { Ring } from "../components/ui/Ring";
 import { Sheet } from "../components/ui/Sheet";
 import { useToast } from "../components/ui/Toast";
 import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, dayShort, localToday } from "../lib/dates";
-import { SLOT_LABEL } from "../onboarding/screens";
 import { ViewHead } from "./AppLayout";
-import { weekDates } from "./planUtil";
+import { SLOT_LABEL, weekDates } from "./planUtil";
 
 const DIET_LABEL: Record<string, string> = { OMNIVORE: "Eats everything", HALAL: "Halal", PESCATARIAN: "Pescatarian", VEGETARIAN: "Vegetarian", VEGAN: "Vegan", OTHER: "Custom" };
 const fmt = (n: number) => n.toLocaleString("en-GB");

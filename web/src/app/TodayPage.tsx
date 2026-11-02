@@ -10,10 +10,10 @@ import { ExerciseFigure } from "../figures/Figures";
 import { patOf } from "../figures/figureEngine";
 import { Ring } from "../components/ui/Ring";
 import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, greeting, localToday } from "../lib/dates";
-import { SLOT_LABEL } from "../onboarding/screens";
+import { usePushStatus } from "../lib/push";
 import { ViewHead } from "./AppLayout";
 import { ACT_ICON, useSheets } from "./AppSheets";
-import { CYCLE_DAYS, checkinText, cycleWeek, firstSessionFrom, musclesFor, readFlags, sessionOn, sessionsByDate, weekDates } from "./planUtil";
+import { CYCLE_DAYS, SLOT_LABEL, checkinText, cycleWeek, firstSessionFrom, musclesFor, readFlags, sessionOn, sessionsByDate, weekDates } from "./planUtil";
 
 export function Peek({ pattern }: { pattern: string | null }) {
   const p = pattern ?? "squat";
@@ -44,6 +44,7 @@ export function TodayPage() {
   const { plan, me } = usePlan() as { plan: ActivePlanDto; me: { displayName: string } | null };
   const units = useUnits();
   const sheets = useSheets();
+  const push = usePushStatus();
   const navigate = useNavigate();
   const today = useMemo(() => localToday(), []);
   const week = weekDates(today);
@@ -122,10 +123,17 @@ export function TodayPage() {
   }
 
   const first = firstSessionFrom(plan, plan.startDate);
+  // A saved time only counts once this phone can get the notification (or can't ever, e.g. an old browser).
+  const blocked = !!plan.profile.reminderTime && (push === "off" || push === "needs-install" || push === "denied");
   const weighed = (wQ.data?.weightHistory ?? []).some((w) => w.recordedAt.slice(0, 10) >= addDaysIso(plan.startDate, -7));
   const ess = [
     { on: weighed, t: "Log today's weigh-in", d: "Your real starting number", go: sheets.weighIn },
-    { on: !!plan.profile.reminderTime, t: "Set a workout reminder", d: "Pick a time and we'll nudge you", go: sheets.reminder },
+    {
+      on: !!plan.profile.reminderTime && !blocked,
+      t: blocked ? "Turn on reminder notifications" : "Set a workout reminder",
+      d: blocked ? `Your ${plan.profile.reminderTime} reminder can't reach this phone yet` : "Pick a time and we'll nudge you",
+      go: sheets.reminder,
+    },
     { on: !!flags.previewed, t: "Preview your first session", d: `${first.session.name} on ${DAYS_LONG[weekdayOf(first.date)]}`, go: () => sheets.preview(first.session, first.date) },
     { on: !!flags.audit, t: "Do your 2-minute meal audit", d: "Tell us what a normal lunch looks like", go: sheets.audit },
   ];

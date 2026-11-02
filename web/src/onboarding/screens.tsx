@@ -3,7 +3,7 @@ import { useMutation } from "@apollo/client/react";
 import {
   ArrowRight, CalendarDays, Check, ChevronDown, Circle, CircleAlert, Mail, Pencil, Play, Sunrise, Zap,
 } from "lucide-react";
-import { MEAL_SLOTS, buildWeek, generatePlan, startSentence, type MealSlot } from "@engine";
+import { MEAL_SLOTS, buildWeek, generatePlan, startSentence } from "@engine";
 import { useAuth } from "../auth/AuthContext";
 import { InAppBrowserNote } from "../components/ui/InAppBrowserNote";
 import { DEV_AUTH_BYPASS, authErrorMessage, signInWithGoogle, signUpWithEmail } from "../firebase";
@@ -16,10 +16,10 @@ import { DAYS, DAYS_LONG, addDaysIso, dateLong, dayLabel, weekdayOf } from "../l
 import { firstName, toDiet, toTraining, type Draft } from "./draft";
 import { ProjectionChart } from "./ProjectionChart";
 import { kgFmt, kgShow, type StepCtx } from "./steps";
+import { SLOT_LABEL } from "../app/planUtil";
 
 const reduce = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const fmt = (n: number) => n.toLocaleString("en-GB");
-export const SLOT_LABEL: Record<MealSlot, string> = { BREAKFAST: "Breakfast", LUNCH: "Lunch", DINNER: "Dinner", SNACK: "Snack" };
 
 // ── Build loader ──────────────────────────────────────────────────────────
 

@@ -3,16 +3,20 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
 import { usePlan } from "./hooks/usePlan";
-import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { AppLayout } from "./app/AppLayout";
-import { TodayPage } from "./app/TodayPage";
-import { TrainPage } from "./app/TrainPage";
-import { FuelPage } from "./app/FuelPage";
-import { ProgressPage } from "./app/ProgressPage";
-import { SessionPage } from "./app/SessionPage";
 import { SignInPage } from "./pages/SignInPage";
-import { WelcomePage, WelcomePhotoPage } from "./pages/WelcomePage";
-// MVP 1 screens (and recharts) load only when opened.
+
+// Each area downloads when first opened: returning users never load the
+// onboarding quiz, and new users don't load the app until their plan exists.
+const OnboardingFlow = lazy(() => import("./onboarding/OnboardingFlow").then((m) => ({ default: m.OnboardingFlow })));
+const WelcomePage = lazy(() => import("./pages/WelcomePage").then((m) => ({ default: m.WelcomePage })));
+const WelcomePhotoPage = lazy(() => import("./pages/WelcomePage").then((m) => ({ default: m.WelcomePhotoPage })));
+const TodayPage = lazy(() => import("./app/TodayPage").then((m) => ({ default: m.TodayPage })));
+const TrainPage = lazy(() => import("./app/TrainPage").then((m) => ({ default: m.TrainPage })));
+const FuelPage = lazy(() => import("./app/FuelPage").then((m) => ({ default: m.FuelPage })));
+const ProgressPage = lazy(() => import("./app/ProgressPage").then((m) => ({ default: m.ProgressPage })));
+const SessionPage = lazy(() => import("./app/SessionPage").then((m) => ({ default: m.SessionPage })));
+// MVP 1 screens (and recharts).
 const WeightPage = lazy(() => import("./pages/WeightPage").then((m) => ({ default: m.WeightPage })));
 const WorkoutsPage = lazy(() => import("./pages/WorkoutsPage").then((m) => ({ default: m.WorkoutsPage })));
 const TemplatesPage = lazy(() => import("./pages/TemplatesPage").then((m) => ({ default: m.TemplatesPage })));
@@ -31,13 +35,14 @@ function Legacy({ children }: { children: ReactNode }) {
   return (
     <div className="view-in legacy">
       <Link className="back-link" to="/train"><ArrowLeft />Back to Train</Link>
-      <Suspense fallback={<p className="boot">Loading…</p>}>{children}</Suspense>
+      {children}
     </div>
   );
 }
 
 export default function App() {
   return (
+    <Suspense fallback={<p className="boot">Loading…</p>}>
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/start" element={<Navigate to="/start/welcome" replace />} />
@@ -57,5 +62,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 }

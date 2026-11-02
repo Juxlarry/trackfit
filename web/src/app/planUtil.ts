@@ -1,8 +1,10 @@
-import { addDaysIso, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap } from "@engine";
+import { addDaysIso, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap, type MealSlot } from "@engine";
 import type { ActivePlanDto, PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
 import { readJson, writeJson } from "../lib/storage";
 
 export const CYCLE_DAYS = 42;
+
+export const SLOT_LABEL: Record<MealSlot, string> = { BREAKFAST: "Breakfast", LUNCH: "Lunch", DINNER: "Dinner", SNACK: "Snack" };
 
 /** Local calendar date (YYYY-MM-DD) of an ISO timestamp. */
 export function localDateOf(ts: string): string {

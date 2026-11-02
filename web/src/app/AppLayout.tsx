@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useApolloClient } from "@apollo/client/react";
 import { Activity, ChartLine, Dumbbell, Sun, Users, Utensils } from "lucide-react";
@@ -58,7 +58,7 @@ export function AppLayout() {
       <AppSheets>
         <div className="shell">
           <Tabs />
-          <main className="view"><Outlet /></main>
+          <main className="view"><Suspense fallback={<p className="boot">Loading…</p>}><Outlet /></Suspense></main>
         </div>
       </AppSheets>
     </RequirePlan>

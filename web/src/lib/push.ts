@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import type { ApolloClient } from "@apollo/client";
+import { useApolloClient } from "@apollo/client/react";
 import { PUSH_CONFIG, SUBSCRIBE_PUSH, UNSUBSCRIBE_PUSH } from "../graphql/operations";
 import { inAppBrowserName, isIos, isStandalone } from "./pwa";
 
@@ -41,6 +43,24 @@ async function save(client: ApolloClient, sub: PushSubscription): Promise<void> 
   });
 }
 
+// Lets screens showing the status (Today's checklist) update after the
+// reminder sheet turns notifications on or off.
+const listeners = new Set<() => void>();
+const changed = () => listeners.forEach((l) => l());
+
+/** This device's push status; null while checking. */
+export function usePushStatus(): PushStatus | null {
+  const client = useApolloClient();
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  useEffect(() => {
+    const check = () => { pushStatus(client).then(setStatus, () => setStatus("unsupported")); };
+    check();
+    listeners.add(check);
+    return () => { listeners.delete(check); };
+  }, [client]);
+  return status;
+}
+
 export async function pushStatus(client: ApolloClient): Promise<PushStatus> {
   if (inAppBrowserName()) return "in-app";
   if (isIos() && !isStandalone()) return "needs-install";
@@ -66,6 +86,7 @@ export async function enablePush(client: ApolloClient): Promise<PushStatus> {
   const reg = await registration();
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) }));
   await save(client, sub);
+  changed();
   return "on";
 }
 
@@ -88,4 +109,5 @@ export async function disablePushHere(client: ApolloClient): Promise<void> {
   if (!sub) return;
   await client.mutate({ mutation: UNSUBSCRIBE_PUSH, variables: { endpoint: sub.endpoint } });
   await sub.unsubscribe();
+  changed();
 }
