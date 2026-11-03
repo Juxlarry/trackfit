@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Bandage, CircleAlert, Clock, Dumbbell, Flame, GraduationCap, Minus, Plus, Moon, PersonStanding, Scale, Store, Sunrise, Sunset, Target, Timer, TrendingUp, Zap,
+  Bandage, CalendarDays, CircleAlert, Clock, Dumbbell, Repeat, Trophy, Flame, GraduationCap, Minus, Plus, Moon, PersonStanding, Scale, Store, Sunrise, Sunset, Target, Timer, TrendingUp, Zap,
   type LucideIcon,
 } from "lucide-react";
 import { ExerciseFigure, ExerciseThumb } from "../../figures/Figures";
@@ -11,6 +11,7 @@ import { Sheet } from "../ui/Sheet";
 const ADAPT_ICONS: Record<string, LucideIcon> = {
   bandage: Bandage, dumbbell: Dumbbell, flame: Flame, target: Target, "person-standing": PersonStanding, timer: Timer,
   "graduation-cap": GraduationCap, moon: Moon, sunset: Sunset, sunrise: Sunrise, zap: Zap, store: Store, clock: Clock, "trending-up": TrendingUp, scale: Scale,
+  calendar: CalendarDays, repeat: Repeat, trophy: Trophy,
 };
 export const adaptIcon = (name: string): LucideIcon => ADAPT_ICONS[name] ?? Target;
 

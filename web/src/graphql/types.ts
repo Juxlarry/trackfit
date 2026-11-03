@@ -10,6 +10,8 @@ export interface PlannedExerciseDto {
   swapped: boolean;
   replaces: string | null;
   suggestedLoadKg: number | null;
+  /** From the week-6 check-in: where this cycle starts, until the first log. */
+  startLoadKg: number | null;
 }
 
 export interface PlannedSessionDto {
@@ -84,13 +86,38 @@ export interface MealItemDto {
   carbsG: number;
   fatG: number;
   eaten: boolean;
+  skipped: boolean;
 }
+
+export interface DayTotalsDto { kcal: number; proteinG: number; carbsG: number; fatG: number }
+
+export interface FoodLogDto {
+  id: string;
+  slot: MealSlot;
+  foodKey: string | null;
+  customFoodId: string | null;
+  name: string;
+  portionLabel: string;
+  portionIndex: number | null;
+  grams: number | null;
+  quantity: number;
+  kcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  replacedSlotIndex: number | null;
+}
+
+export interface CustomFoodDto { id: string; name: string; kcal: number; proteinG: number; carbsG: number; fatG: number }
 
 export interface MealDayDto {
   date: string;
   proteinShortfallG: number;
-  targets: { kcal: number; proteinG: number; carbsG: number; fatG: number } | null;
+  targets: DayTotalsDto | null;
   items: MealItemDto[];
+  foods: FoodLogDto[];
+  water: { ml: number; targetMl: number; targetText: string } | null;
+  eaten: DayTotalsDto;
 }
 
 export interface ActivityDto {
@@ -114,4 +141,51 @@ export interface SessionSummaryDto {
   durationMinutes: number | null;
   setCount: number;
   volumeKg: number;
+}
+
+export type WorkoutFeel = "TOO_EASY" | "ABOUT_RIGHT" | "TOO_HARD";
+export type EatingAdherence = "MOST_DAYS" | "SOME_DAYS" | "HARD";
+export type GoalChoice = "NEW_TARGET" | "MAINTAIN";
+
+export interface CheckinAnswers {
+  feel: WorkoutFeel;
+  eating: EatingAdherence;
+  days: number;
+  goalChoice?: GoalChoice | null;
+  newTargetKg?: number | null;
+  keep?: string[];
+}
+
+export interface CycleCheckinDto {
+  open: boolean;
+  opensOn: string;
+  cycleNumber: number;
+  currentDays: number;
+  currentKcal: number;
+  goal: string;
+  targetWeightKg: number | null;
+  dayRange: { min: number; max: number };
+  eatingLog: { loggedDays: number; onTargetDays: number; suggested: EatingAdherence | null };
+  results: {
+    startKg: number;
+    endKg: number | null;
+    changeKg: number | null;
+    plannedChangeKg: number;
+    sessionsPlanned: number;
+    sessionsDone: number;
+    adherence: number;
+    needsWeighIn: boolean;
+    goalReached: boolean;
+    suggestedDays: number;
+    suggestedTargetKg: number | null;
+    bestLift: { name: string; fromKg: number; toKg: number } | null;
+  };
+}
+
+export interface CyclePreviewDto {
+  daysPerWeek: number;
+  splitLabel: string;
+  targets: { kcal: number; proteinG: number; carbsG: number; fatG: number };
+  changes: { icon: string; title: string; why: string }[];
+  sessions: { weekday: number; name: string; exercises: { name: string; sets: number; reps: string; rotatedFrom: string | null; startLoadKg: number | null }[] }[];
 }

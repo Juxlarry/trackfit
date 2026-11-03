@@ -18,11 +18,13 @@ Fitness tracker with a personalised onboarding quiz, a generated 6-week training
 - **API**: GraphQL (Apollo Server 5), modular monolith. Each module has its own Postgres schema:
   - `identity`: users, auth, health screening, intake;
   - `tracking`: weight, exercises, templates, sessions, milestones, generated programs, activities;
-  - `nutrition`: recipes, nutrition plans, meal entries.
+  - `nutrition`: recipes, nutrition plans, meal entries, food logs, custom foods, water.
   - The `planning` module orchestrates onboarding and owns no tables of its own.
 - **Plan engine**: `backend/src/modules/planning/engine` is pure TypeScript with no I/O. The backend uses it to generate plans. The web app imports the same code through the `@engine` Vite alias for live previews in the quiz, so the rules exist once. The seed SQL for exercises and recipes is generated from its catalogue.
 - **Auth**: Firebase Authentication with Google and email/password. The backend verifies ID tokens.
-- **Notifications**: reminders as Web Push (VAPID, `web-push`): training days, the evening before the plan starts, weekly weigh-ins, Week 3/6 photo slots and missed sessions (the last three switchable, `notifications.reminder_prefs`). Rules and times are at the top of `backend/src/modules/notifications/reminders.ts`. A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
+- **Week-6 check-in**: from day 40 of a cycle, `/checkin` shows what the cycle did (weight against planned pace, sessions done, best lift), asks three questions and builds the next cycle: calories recalculated and corrected ±150 kcal against the pace, day count, set changes, rotated accessories and starting weights from weeks 5-6. Rules: `backend/src/modules/planning/engine/checkin.ts`; history in `tracking.cycle_checkins`.
+- **Log any food** on Fuel: search about 140 foods, Ghanaian dishes first, with local names (`backend/src/modules/planning/engine/foods.ts`, searched on the device), pick a household portion or grams and the meal. Foods not in the list can be quick-added and are kept in "My foods". A food logged "instead of" a planned meal stops that meal counting. The daily totals combine ticked meals and logged foods, and the week-6 check-in pre-answers its eating question from them. Optional water tracking uses sachet and Voltic/Bel-Aqua bottle sizes, with a target of about 35 ml/kg (+500 ml on training days).
+- **Notifications**: reminders as Web Push (VAPID, `web-push`): training days, the evening before the plan starts, weekly weigh-ins, Week 3/6 photo slots, missed sessions (those three switchable, `notifications.reminder_prefs`) and the week-6 check-in on days 40-42. Rules and times are at the top of `backend/src/modules/notifications/reminders.ts`. A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
 - **Email**: a `Mailer` interface. Only `MAIL_PROVIDER=console` (logs the email) exists so far; a real provider is an open item.
 - **Web**: Vite, React 19, Apollo Client 4 and react-router 7. Fonts are Bricolage Grotesque, Onest and JetBrains Mono. The theme is "Sunrise Lime" with light and dark modes.
 
@@ -103,9 +105,7 @@ That run had no console errors.
 ## Open items
 
 - **Email provider**: welcome emails only go to the console until a provider is chosen (for example Resend or SES).
-- **Media storage**: progress photos and videos stay in the browser (IndexedDB) on the device that took them. The UI says so. Moving them to cloud storage needs an upload API and a bucket.
-- **Reminders**: the reminder time is saved, but no push or email sender runs yet.
-- **Cycle check-in** (week 6) is shown in the app but not built.
+- **Food numbers** are estimates from standard food tables (about ±15%). Spot-check the Ghanaian dishes against local data when possible. Barcode scanning is not built.
 - **Meal audit and "previewed first session"** flags are kept per device in localStorage.
 
 ## About Prisma

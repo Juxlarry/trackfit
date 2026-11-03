@@ -6,6 +6,9 @@ import { defineConfig, loadEnv } from "vite";
 // generator rules) and is pure TypeScript, so the web app imports it
 // directly for instant previews during onboarding. See backend/src/modules/planning/engine.
 const engine = fileURLToPath(new URL("../backend/src/modules/planning/engine/index.ts", import.meta.url));
+// The food list is only needed on the Fuel tab, so it has its own entry point
+// and stays out of the first download.
+const foods = fileURLToPath(new URL("../backend/src/modules/planning/engine/foods.ts", import.meta.url));
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => {
@@ -20,7 +23,7 @@ export default defineConfig(({ command, mode }) => {
   }
   return {
     plugins: [react()],
-    resolve: { alias: { "@engine": engine } },
+    resolve: { alias: [{ find: /^@engine$/, replacement: engine }, { find: /^@engine\/foods$/, replacement: foods }] },
     server: { fs: { allow: [".."] } },
   };
 });

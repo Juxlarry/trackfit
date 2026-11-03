@@ -1,9 +1,9 @@
 import {
   ACTIVITY_TYPES, CARDIO_LIKE_TO_TYPE, CORE, POOL, RECIPES, SESSION_NAMES, SWAPS,
-  equipmentClass, isCoreExercise, isIsolation, patternOf, targetMuscle, warmupFor,
+  alternativesFor, equipmentClass, isCoreExercise, isIsolation, isMainLift, patternOf, targetMuscle, warmupFor,
 } from "./catalog.js";
 import type {
-  Adaptation, DayMenu, DietInput, Effort, GeneratedPlan, HealthScreening, MealPattern, MealSlot,
+  Adaptation, BuildOptions, DayMenu, DietInput, Effort, GeneratedPlan, HealthScreening, MealPattern, MealSlot,
   MenuItem, Pace, PlannedExercise, PlannedSession, PriorityMuscle, Projection, Recipe, SessionType, Targets,
   TrainingInput, WeekPlan,
 } from "./types.js";
@@ -61,7 +61,8 @@ export function weeklyRateKg(i: Pick<TrainingInput, "goal" | "pace" | "weightKg"
   if ((i.goal !== "LOSE_FAT" && i.goal !== "BUILD_MUSCLE") || !i.pace) return 0;
   return i.weightKg * PACE_RATE[i.goal][i.pace];
 }
-export function computeTargets(i: TrainingInput, days = i.daysPerWeek): Targets {
+/** kcalOffset: the check-in's running correction from real results (see checkin.ts). The floors still apply. */
+export function computeTargets(i: TrainingInput, days = i.daysPerWeek, kcalOffset = 0): Targets {
   const b = bmr(i);
   const tdee = b * ACTIVITY_FACTOR[i.activityLevel] + (days * i.sessionMinutes * 5.5) / 7;
   let kcal = tdee;
@@ -69,6 +70,8 @@ export function computeTargets(i: TrainingInput, days = i.daysPerWeek): Targets 
   if (i.goal === "LOSE_FAT") kcal = tdee - Math.min((rate * KCAL_PER_KG) / 7, tdee * 0.25);
   else if (i.goal === "BUILD_MUSCLE") kcal = tdee + (rate * KCAL_PER_KG) / 7;
   else if (i.goal === "RECOMP") kcal = tdee * 0.9;
+  kcal += kcalOffset;
+  if (i.goal === "LOSE_FAT") kcal = Math.max(kcal, tdee * 0.75);
   const floor = i.sex === "FEMALE" ? 1250 : 1500;
   kcal = Math.max(floor, Math.round(kcal / 10) * 10);
   const bf = bodyFatEstimate(i);
@@ -174,7 +177,7 @@ export function exerciseCount(i: Pick<TrainingInput, "sessionMinutes" | "warmup"
 }
 
 const SEED: Record<SessionType, number> = { UPPER: 0, LOWER: 1, PUSH: 2, PULL: 3, LEGS: 1, FULL: 2 };
-export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0): PlannedExercise[] {
+export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0, opts: BuildOptions = {}): PlannedExercise[] {
   const cls = equipmentClass(i.equipment);
   const pool = POOL[cls][type];
   const list = pool.slice(0, exerciseCount(i));
@@ -210,6 +213,21 @@ export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0)
     if (k === 0) { k = list.length - 1; while (k > 0 && !replaceable(k)) k--; }
     if (k > 0) list[k] = pick;
   }
+  // New cycle, some new accessories: each cycles through [original, ...alternatives].
+  // Main lifts and core stay, so progress on them stays comparable.
+  const cycle = opts.cycle ?? 1;
+  const rotatedFrom = new Map<string, string>();
+  if (cycle > 1) {
+    list.forEach((x, k) => {
+      const options = [x, ...alternativesFor(x, equipmentClass(i.equipment)).filter((y) => !list.includes(y))];
+      if (options.length < 2) return;
+      const prev = options[(cycle - 2) % options.length];
+      const next = opts.keep?.includes(prev) ? prev : options[(cycle - 1) % options.length];
+      list[k] = next;
+      if (next !== prev) rotatedFrom.set(next, prev);
+    });
+  }
+
   // Priority work first while you're fresh; core closes the session.
   const rank = (x: string) => (isCoreExercise(x) ? 2 : isFocus(x) ? 0 : 1);
   list.sort((a, b) => rank(a) - rank(b));
@@ -224,10 +242,12 @@ export function exercisesFor(type: SessionType, i: TrainingInput, slotIndex = 0)
     }
     const core = isCoreExercise(name);
     const baseSets = i.experience === "NEW" ? 2 : slotIndex < 2 ? 4 : 3;
-    const sets = core ? baseSets : isFocus(orig) && boosted++ < 2 ? baseSets + 1 : isLow(orig) ? Math.max(2, baseSets - 1) : baseSets;
-    const compound = /squat|deadlift|press|row|pulldown|pull-up|thrust/i.test(name) && !core;
+    let sets = core ? baseSets : isFocus(orig) && boosted++ < 2 ? baseSets + 1 : isLow(orig) ? Math.max(2, baseSets - 1) : baseSets;
+    const compound = isMainLift(name);
+    if (compound && opts.mainSetDelta) sets = Math.min(5, sets + opts.mainSetDelta);
+    if (!compound && !core && opts.accessorySetDelta) sets = Math.max(2, sets + opts.accessorySetDelta);
     const reps = /plank|hollow/i.test(name) ? "30-45 s" : compound && slotIndex < 2 ? "6-10" : "10-15";
-    return { name, pattern: patternOf(name), sets, reps, isCore: core, swapped, replaces: swapped ? orig : null };
+    return { name, pattern: patternOf(name), sets, reps, isCore: core, swapped, replaces: swapped ? orig : null, rotatedFrom: rotatedFrom.get(orig) ?? null };
   });
 }
 
@@ -237,7 +257,7 @@ export function restSuggestion(weekdayIdx: number, cardioLikes: string[]): strin
   return `${ACTIVITY_TYPES[likes[weekdayIdx % likes.length]].label}, 30 to 45 min`;
 }
 
-export function buildWeek(i: TrainingInput, days = i.daysPerWeek): WeekPlan {
+export function buildWeek(i: TrainingInput, days = i.daysPerWeek, opts: BuildOptions = {}): WeekPlan {
   const types = splitTypes(days, i);
   const names = sessionNames(types);
   const weekdays = pickDays(days, i.availableDays);
@@ -246,7 +266,7 @@ export function buildWeek(i: TrainingInput, days = i.daysPerWeek): WeekPlan {
     type: types[k],
     name: names[k],
     warmup: i.warmup ? warmupFor(types[k]) : [],
-    exercises: exercisesFor(types[k], i),
+    exercises: exercisesFor(types[k], i, 0, opts),
   }));
   const restDays = [0, 1, 2, 3, 4, 5, 6]
     .filter((d) => !weekdays.includes(d))
@@ -292,6 +312,13 @@ export function swappedOrder(swaps: DaySwap[]): number[] {
   const order = [0, 1, 2, 3, 4, 5, 6];
   for (const [a, b] of swaps) [order[a], order[b]] = [order[b], order[a]];
   return order;
+}
+
+/** The session on a date after that week's swaps (mirrors web planUtil.sessionOn). */
+export function sessionOnDate<S extends { weekday: number }>(sessions: S[], swaps: { weekStart: string; dayA: number; dayB: number }[], iso: string): S | undefined {
+  const week: DaySwap[] = swaps.filter((s) => s.weekStart === mondayOf(iso)).map((s) => [s.dayA, s.dayB]);
+  const weekday = swappedOrder(week)[weekdayOf(iso)];
+  return sessions.find((s) => s.weekday === weekday);
 }
 
 /** Session type per weekday (null = rest day). */

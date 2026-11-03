@@ -295,6 +295,62 @@ test("meals: menu, eaten ticks, swaps", async () => {
   assert.equal(wrongSlot.errors?.[0].extensions.code, "BAD_USER_INPUT");
 });
 
+test("food log: list foods, grams, quick-add, instead of a planned meal, edit, remove, water", async () => {
+  const ama = await newUser("Ama");
+  await ok(ONBOARD, { i: { displayName: "Ama", screening: screeningClear, training, diet, mindset: {}, startDate: today } }, ama);
+  const DAY = `items{ slotIndex kcal eaten skipped } foods{ id slot name portionLabel quantity kcal proteinG replacedSlotIndex customFoodId }
+    eaten{ kcal proteinG } water{ ml targetMl targetText }`;
+  const LOG = `mutation($i:LogFoodInput!){ logFood(input:$i){ ${DAY} } }`;
+
+  // Jollof instead of the planned lunch: the planned lunch stops counting.
+  let d = (await ok(LOG, { i: { date: today, slot: "LUNCH", foodKey: "jollof-rice", portionIndex: 2, quantity: 1, insteadOfSlotIndex: 0 } }, ama)).logFood;
+  assert.deepEqual(d.foods.map((f: any) => [f.name, f.portionLabel, f.kcal, f.replacedSlotIndex]), [["Jollof rice", "Medium plate (350 g)", 578, 0]]);
+  assert.equal(d.items[0].skipped, true);
+  assert.equal(d.eaten.kcal, 578);
+  const jollof = d.foods[0].id;
+
+  d = (await ok(`mutation($d:String!){ setMealEaten(date:$d, slotIndex:1, eaten:true){ ${DAY} } }`, { d: today }, ama)).setMealEaten;
+  assert.equal(d.eaten.kcal, 578 + d.items[1].kcal);
+
+  // Quick-add saves "My foods"; the same name again updates it.
+  d = (await ok(LOG, { i: { date: today, slot: "DINNER", custom: { name: "Mum's light soup", kcal: 300, proteinG: 20 }, quantity: 2 } }, ama)).logFood;
+  assert.deepEqual([d.foods[1].kcal, d.foods[1].proteinG, d.foods[1].portionLabel], [600, 40, "1 serving"]);
+  await ok(LOG, { i: { date: today, slot: "SNACK", custom: { name: "mum's LIGHT soup", kcal: 280 }, quantity: 1 } }, ama);
+  d = (await ok(LOG, { i: { date: today, slot: "DINNER", foodKey: "plain-rice", grams: 200, quantity: 1 } }, ama)).logFood;
+  assert.deepEqual([d.foods[3].portionLabel, d.foods[3].kcal], ["200 g", 260]);
+
+  // Edit the jollof to 1½ large plates, then remove it: the planned lunch is back.
+  d = (await ok(`mutation($id:ID!){ changeFoodLog(id:$id, change:{ slot: LUNCH, portionIndex: 3, quantity: 1.5 }){ ${DAY} } }`, { id: jollof }, ama)).changeFoodLog;
+  assert.equal(d.foods[0].kcal, 1238);
+  const other = await gql(`mutation($id:ID!){ removeFoodLog(id:$id){ date } }`, { id: jollof }, jay);
+  assert.ok(other.errors, "can't remove someone else's food");
+  d = (await ok(`mutation($id:ID!){ removeFoodLog(id:$id){ ${DAY} } }`, { id: jollof }, ama)).removeFoodLog;
+  assert.equal(d.items[0].skipped, false);
+  assert.equal(d.foods.length, 3);
+
+  const mine = (await ok(`{ myFoods{ custom{ name kcal } recent{ name foodKey customFoodId portionLabel grams } } }`, {}, ama)).myFoods;
+  assert.deepEqual(mine.custom, [{ name: "mum's LIGHT soup", kcal: 280 }]);
+  assert.deepEqual(mine.recent.map((r: any) => r.portionLabel), ["200 g", "1 serving"]);
+
+  for (const bad of [
+    { date: addDaysIso(today, 3), slot: "LUNCH", foodKey: "banku", portionIndex: 0, quantity: 1 },
+    { date: today, slot: "LUNCH", foodKey: "pizza-hut", portionIndex: 0, quantity: 1 },
+    { date: today, slot: "LUNCH", foodKey: "banku", portionIndex: 9, quantity: 1 },
+    { date: today, slot: "LUNCH", foodKey: "banku", portionIndex: 0, quantity: 0 },
+    { date: today, slot: "LUNCH", quantity: 1 },
+    { date: today, slot: "LUNCH", custom: { name: "x", kcal: 100 }, quantity: 1 },
+  ]) {
+    const r = await gql(LOG, { i: bad }, ama);
+    assert.equal(r.errors?.[0].extensions.code, "BAD_USER_INPUT", JSON.stringify(bad));
+  }
+
+  d = (await ok(`mutation($d:String!){ setWater(date:$d, ml:1500){ ${DAY} } }`, { d: today }, ama)).setWater;
+  assert.equal(d.water.ml, 1500);
+  assert.ok([2750, 3250].includes(d.water.targetMl), String(d.water.targetMl));
+  assert.match(d.water.targetText, /Voltic or Bel-Aqua/);
+  assert.equal((await gql(`mutation($d:String!){ setWater(date:$d, ml:-5){ date } }`, { d: today }, ama)).errors?.[0].extensions.code, "BAD_USER_INPUT");
+});
+
 test("activities: estimated vs entered calories and validation", async () => {
   const est = await ok(`mutation($i:LogActivityInput!){ logActivity(input:$i){ id kind kcal kcalEstimated distanceKm } }`,
     { i: { performedOn: today, activityType: "WALK", durationMinutes: 30, distanceKm: 2.5, effort: "MODERATE" } }, jay);
@@ -311,6 +367,84 @@ test("activities: estimated vs entered calories and validation", async () => {
   assert.equal(list.activityLogs.length, 2);
   const del = await ok(`mutation($id:ID!){ deleteActivity(id:$id) }`, { id: est.logActivity.id }, jay);
   assert.equal(del.deleteActivity, true);
+});
+
+test("week-6 check-in: results, preview, then cycle 2 built from them", async () => {
+  const kofi = await newUser("Kofi");
+  await ok(ONBOARD, { i: { displayName: "Kofi", screening: screeningClear, training: { ...training, injuries: [], fullBodyDay: false }, diet, mindset: {}, startDate: today } }, kofi);
+  const CHECKIN = `query($t:String!){ cycleCheckin(today:$t){ open opensOn cycleNumber currentDays currentKcal dayRange{min max}
+    results{ startKg endKg changeKg plannedChangeKg sessionsPlanned sessionsDone needsWeighIn goalReached suggestedDays bestLift{ name fromKg toKg } }
+    eatingLog{ loggedDays onTargetDays suggested } } }`;
+  const early = await ok(CHECKIN, { t: today }, kofi);
+  assert.equal(early.cycleCheckin.open, false);
+  assert.deepEqual(early.cycleCheckin.eatingLog, { loggedDays: 0, onTargetDays: 0, suggested: null });
+  assert.equal(early.cycleCheckin.opensOn, addDaysIso(today, 40));
+
+  // Pretend the cycle started 41 days ago and log 6 weeks of history.
+  const start = addDaysIso(today, -41);
+  await pool.query(`UPDATE tracking.generated_programs SET start_date = $2, end_date = $3 WHERE user_id = $1 AND status = 'ACTIVE'`, [kofi, start, today]);
+  const at = (k: number) => `${addDaysIso(start, k)}T09:00:00Z`;
+  for (const [k, kg] of [[0, 81.2], [36, 79], [38, 78.8], [40, 78.6]] as const) {
+    await pool.query(`INSERT INTO tracking.weight_entries (user_id, recorded_at, weight_kg) VALUES ($1, $2, $3)`, [kofi, at(k), kg]);
+  }
+  const { rows: ex } = await pool.query(`SELECT id, name FROM tracking.exercises WHERE name IN ('Back squat', 'Bench press')`);
+  const id = (n: string) => ex.find((e) => e.name === n).id;
+  for (const [k, squat, bench, reps] of [[1, 60, 50, 8], [8, 62.5, 50, 8], [36, 70, 55, 10], [38, 72.5, 55, 7]] as const) {
+    const { rows } = await pool.query(`INSERT INTO tracking.workout_sessions (user_id, started_at) VALUES ($1, $2) RETURNING id`, [kofi, at(k)]);
+    await pool.query(
+      `INSERT INTO tracking.set_logs (session_id, exercise_id, set_number, reps, weight_kg) VALUES ($1,$2,1,$4,$3), ($1,$5,1,$7,$6)`,
+      [rows[0].id, id("Back squat"), squat, reps, id("Bench press"), bench, reps],
+    );
+  }
+  const c = (await ok(CHECKIN, { t: today }, kofi)).cycleCheckin;
+  assert.equal(c.open, true);
+  assert.equal(c.cycleNumber, 1);
+  assert.deepEqual(
+    { ...c.results, sessionsPlanned: undefined },
+    { startKg: 81.2, endKg: 78.8, changeKg: -2.4, plannedChangeKg: -3.7, sessionsPlanned: undefined, sessionsDone: 4, needsWeighIn: false,
+      goalReached: false, suggestedDays: 3, bestLift: { name: "Back squat", fromKg: 62.5, toKg: 72.5 } },
+  );
+  assert.equal(c.results.sessionsPlanned, 24);
+
+  const answers = { feel: "TOO_EASY", eating: "MOST_DAYS", days: 3 };
+  const PREVIEW = `query($t:String!,$a:CheckinAnswersInput!){ previewNextCycle(today:$t, answers:$a){ daysPerWeek targets{ kcal }
+    changes{ icon title why } sessions{ name exercises{ name sets rotatedFrom startLoadKg } } } }`;
+  const p = (await ok(PREVIEW, { t: today, a: answers }, kofi)).previewNextCycle;
+  assert.equal(p.daysPerWeek, 3);
+  assert.ok(p.changes.some((x: any) => x.title === "4 → 3 training days a week"), JSON.stringify(p.changes));
+  assert.ok(p.changes.some((x: any) => x.title === "One more set on your main lifts"));
+  const all = p.sessions.flatMap((s: any) => s.exercises);
+  assert.equal(all.find((e: any) => e.name === "Back squat")?.startLoadKg, 72.5, "70 × 10 hit the top of 6-10, but 72.5 is heavier and didn't");
+  assert.equal(all.find((e: any) => e.name === "Bench press")?.startLoadKg, 56.25, "55 × 10: +1.25 kg");
+  const rotated = all.find((e: any) => e.rotatedFrom);
+  assert.ok(rotated, "an accessory rotates");
+
+  const bad = await gql(PREVIEW, { t: today, a: { ...answers, days: 6 } }, kofi);
+  assert.equal(bad.errors?.[0].extensions.code, "BAD_USER_INPUT");
+
+  const DONE = `mutation($t:String!,$a:CheckinAnswersInput!,$s:String!){ completeCheckin(today:$t, answers:$a, startDate:$s){
+    cycleNumber startDate daysPerWeek onboardingDays targets{ kcal } profile{ startWeightKg }
+    sessions{ name exercises{ name sets startLoadKg } } } }`;
+  const kept = rotated.rotatedFrom;
+  const next = (await ok(DONE, { t: today, a: { ...answers, keep: [kept] }, s: tomorrow }, kofi)).completeCheckin;
+  assert.equal(next.cycleNumber, 2);
+  assert.equal(next.startDate, tomorrow);
+  assert.equal(next.daysPerWeek, 3);
+  assert.equal(next.onboardingDays, 3, "the ±1 range re-centres on the new day count");
+  assert.equal(next.profile.startWeightKg, 78.8);
+  assert.equal(next.targets.kcal, p.targets.kcal);
+  const names = next.sessions.flatMap((s: any) => s.exercises.map((e: any) => e.name));
+  assert.ok(names.includes(kept), "the kept exercise stayed");
+  assert.equal(next.sessions.flatMap((s: any) => s.exercises).find((e: any) => e.name === "Bench press").startLoadKg, 56.25);
+
+  const again = await gql(DONE, { t: today, a: answers, s: tomorrow }, kofi);
+  assert.equal(again.errors?.[0].extensions.code, "BAD_USER_INPUT", "cycle 2 isn't open for a check-in");
+  const { rows: saved } = await pool.query(`SELECT answers->>'feel' AS feel, results->>'endKg' AS end_kg FROM tracking.cycle_checkins WHERE user_id = $1`, [kofi]);
+  assert.deepEqual(saved, [{ feel: "TOO_EASY", end_kg: "78.8" }]);
+
+  // A mid-cycle day change keeps the check-in's decisions.
+  const four = (await ok(`mutation{ setTrainingDays(days:4){ sessions{ exercises{ name sets } } targets{ kcal } } }`, {}, kofi)).setTrainingDays;
+  assert.equal(four.sessions.flatMap((s: any) => s.exercises).find((e: any) => e.name === "Bench press").sets, 5, "still +1 set");
 });
 
 test("redoing onboarding starts cycle 2 and archives cycle 1", async () => {

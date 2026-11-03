@@ -5,6 +5,13 @@ import {
   completeOnboarding, getActivePlan, previewPlan, resetWeekSchedule, setStartDate, setTrainingDays, setWorkoutReminder, swapSessionDays,
   type ActivePlan, type OnboardingSubmission,
 } from "./planning.service.js";
+import { completeCheckin, getCheckin, previewNextCycle } from "./checkin.service.js";
+import type { CheckinAnswers } from "./engine/index.js";
+
+/** GraphQL leaves optional fields undefined; keep the stored answers explicit. */
+const toAnswers = (a: CheckinAnswers): CheckinAnswers => ({
+  feel: a.feel, eating: a.eating, days: a.days, goalChoice: a.goalChoice ?? null, newTargetKg: a.newTargetKg ?? null, keep: a.keep ?? [],
+});
 
 type TrainingArg = Omit<TrainingInput, "lowPriorityMuscles"> & { lowPriorityMuscles?: TrainingInput["lowPriorityMuscles"] | null; motivations?: string[] | null; injuryNote?: string | null; cardioFrequency?: string | null; energy?: string | null };
 type DietArg = Omit<DietInput, "dislikes" | "prep"> & { dislikes?: string | null; prep?: DietInput["prep"] | null; calorieAwareness?: string | null; proteinAwareness?: string | null };
@@ -49,12 +56,26 @@ export const planningResolvers = {
       return {
         ...plan,
         splitLabel: plan.week.splitLabel, daysPerWeek: plan.week.daysPerWeek, sessions: plan.week.sessions, restDays: plan.week.restDays,
-        sampleMenu: { ...plan.sampleMenu, items: plan.sampleMenu.items.map((i) => ({ ...i, eaten: false })), targets: plan.targets },
+        sampleMenu: {
+          ...plan.sampleMenu, items: plan.sampleMenu.items.map((i) => ({ ...i, eaten: false, skipped: false })), targets: plan.targets,
+          foods: [], water: null, eaten: { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0 },
+        },
       };
     },
     myPlan: async (_p: unknown, _a: unknown, ctx: GraphQLContext) => {
       const plan = await getActivePlan(requireUser(ctx).id);
       return plan ? presentPlan(plan) : null;
+    },
+    cycleCheckin: async (_p: unknown, args: { today: string }, ctx: GraphQLContext) => {
+      const userId = requireUser(ctx).id;
+      return (await getActivePlan(userId)) ? getCheckin(userId, args.today) : null;
+    },
+    previewNextCycle: async (_p: unknown, args: { today: string; answers: CheckinAnswers }, ctx: GraphQLContext) => {
+      const next = await previewNextCycle(requireUser(ctx).id, args.today, toAnswers(args.answers));
+      return {
+        changes: next.changes, targets: next.targets, daysPerWeek: next.days, splitLabel: next.week.splitLabel,
+        sessions: next.week.sessions.map((s) => ({ ...s, exercises: s.exercises.map((e) => ({ ...e, startLoadKg: next.loads[e.name] ?? null })) })),
+      };
     },
   },
   Mutation: {
@@ -88,6 +109,8 @@ export const planningResolvers = {
       presentPlan(await swapSessionDays(requireUser(ctx).id, args.dateA, args.dateB)),
     resetWeekSchedule: async (_p: unknown, args: { date: string }, ctx: GraphQLContext) =>
       presentPlan(await resetWeekSchedule(requireUser(ctx).id, args.date)),
+    completeCheckin: async (_p: unknown, args: { today: string; answers: CheckinAnswers; startDate: string }, ctx: GraphQLContext) =>
+      presentPlan(await completeCheckin(requireUser(ctx).id, args.today, toAnswers(args.answers), args.startDate)),
     setWorkoutReminder: async (_p: unknown, args: { time?: string | null }, ctx: GraphQLContext) =>
       presentPlan(await setWorkoutReminder(requireUser(ctx).id, args.time ?? null)),
   },

@@ -53,6 +53,9 @@ model User {
   reminderPrefs    ReminderPrefs?
   nutritionPlans   NutritionPlan[]
   mealEntries      MealEntry[]
+  customFoods      CustomFood[]
+  foodLogs         FoodLog[]
+  waterDays        WaterDay[]
   activityLogs     ActivityLog[]
   workoutTemplates WorkoutTemplate[]
   workoutSessions  WorkoutSession[]
@@ -308,12 +311,19 @@ model GeneratedProgram {
   onboardingDays Int      @db.SmallInt
   daysPerWeek    Int      @db.SmallInt
   splitLabel     String
+  /// Set by the week-6 check-in: accessory rotation and set changes (engine BuildOptions).
+  buildOptions   Json     @default("{}")
+  /// Starting weight per exercise name, from weeks 5-6 of the previous cycle.
+  startLoads     Json     @default("{}")
+  /// Running calorie correction from real results.
+  kcalOffset     Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now())
 
   user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]
   swaps     ScheduleSwap[]
+  checkin   CycleCheckin?     @relation("CheckinOf")
 
   @@schema("tracking")
   @@map("generated_programs")
@@ -425,6 +435,8 @@ model MealEntry {
   slotIndex Int      @db.SmallInt
   recipeKey String?
   eaten     Boolean  @default(false)
+  /// Replaced by a logged food (FoodLog.replacedSlotIndex); doesn't count as eaten.
+  skipped   Boolean  @default(false)
   updatedAt DateTime @default(now())
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -433,6 +445,67 @@ model MealEntry {
   @@id([userId, entryDate, slotIndex])
   @@schema("nutrition")
   @@map("meal_entries")
+}
+
+/// A quick-add food the user saved ("My foods"). Name is unique per user, case-insensitive.
+model CustomFood {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  kcal      Int
+  proteinG  Int      @default(0)
+  carbsG    Int      @default(0)
+  fatG      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs FoodLog[]
+
+  @@schema("nutrition")
+  @@map("custom_foods")
+}
+
+/// One food eaten. Name and numbers are copied from the food list (engine/foods.ts)
+/// or a CustomFood at log time.
+model FoodLog {
+  id                String   @id @default(uuid())
+  userId            String
+  entryDate         DateTime @db.Date
+  slot              String /// BREAKFAST | LUNCH | DINNER | SNACK
+  foodKey           String?
+  customFoodId      String?
+  name              String
+  portionLabel      String
+  portionIndex      Int?     @db.SmallInt
+  grams             Int?
+  quantity          Float    @db.Real
+  kcal              Int
+  proteinG          Int      @default(0)
+  carbsG            Int      @default(0)
+  fatG              Int      @default(0)
+  replacedSlotIndex Int?     @db.SmallInt
+  createdAt         DateTime @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customFood CustomFood? @relation(fields: [customFoodId], references: [id], onDelete: SetNull)
+
+  @@index([userId, entryDate])
+  @@schema("nutrition")
+  @@map("food_logs")
+}
+
+/// Water drunk on a day, in ml.
+model WaterDay {
+  userId    String
+  entryDate DateTime @db.Date
+  ml        Int
+  updatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entryDate])
+  @@schema("nutrition")
+  @@map("water_days")
 }
 
 // ── Notifications ────────────────────────────────────────────────────────
@@ -461,6 +534,7 @@ enum ReminderKind {
   WEIGH_IN
   PROGRESS_PHOTO
   MISSED_SESSION
+  CHECKIN_READY
 
   @@schema("notifications")
 }
@@ -491,4 +565,22 @@ model ReminderPrefs {
 
   @@map("reminder_prefs")
   @@schema("notifications")
+}
+
+/// The week-6 check-in that closed a cycle and built the next.
+model CycleCheckin {
+  id            String   @id @default(uuid())
+  userId        String
+  programId     String   @unique
+  nextProgramId String?
+  answers       Json
+  results       Json
+  changes       Json
+  createdAt     DateTime @default(now())
+
+  program GeneratedProgram @relation("CheckinOf", fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("cycle_checkins")
+  @@schema("tracking")
 }

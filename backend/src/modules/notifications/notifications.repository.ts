@@ -7,7 +7,7 @@ export interface PushSubscriptionRow {
   auth: string;
 }
 
-export type ReminderKind = "TRAINING_DAY" | "PLAN_START_EVE" | "WEIGH_IN" | "PROGRESS_PHOTO" | "MISSED_SESSION";
+export type ReminderKind = "TRAINING_DAY" | "PLAN_START_EVE" | "WEIGH_IN" | "PROGRESS_PHOTO" | "MISSED_SESSION" | "CHECKIN_READY";
 
 export interface ReminderPrefsRow { weighIn: boolean; progressPhotos: boolean; missedSession: boolean }
 

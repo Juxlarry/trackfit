@@ -1,4 +1,4 @@
-import { addDaysIso, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap, type MealSlot } from "@engine";
+import { CHECKIN_OPENS_DAY, addDaysIso, checkinOpen, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap, type MealSlot } from "@engine";
 import type { ActivePlanDto, PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
 import { readJson, writeJson } from "../lib/storage";
 
@@ -55,11 +55,15 @@ const flagsKey = (programId: string) => `trackfit.flags.${programId}`;
 export const readFlags = (programId: string) => readJson<LocalFlags>(flagsKey(programId), {});
 export const writeFlags = (programId: string, f: LocalFlags) => writeJson(flagsKey(programId), { ...readFlags(programId), ...f });
 
+/** The week-6 check-in opens on day CHECKIN_OPENS_DAY (engine/checkin.ts). */
+export const checkinIsOpen = (plan: ActivePlanDto, today: string) => checkinOpen(plan.startDate, today);
+
 export function checkinText(plan: ActivePlanDto, today: string): string {
-  const n = daysBetween(today, plan.endDate);
-  if (n <= 0) return "Your check-in is ready. It takes 2 minutes.";
-  const d = new Date(plan.endDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-  return `In ${n} days, on ${d}. Three quick questions, then cycle 2 is built from your results.`;
+  if (checkinIsOpen(plan, today)) return `Your check-in is ready. Three quick questions, then cycle ${plan.cycleNumber + 1} is built from your results.`;
+  const opens = addDaysIso(plan.startDate, CHECKIN_OPENS_DAY);
+  const n = daysBetween(today, opens);
+  const d = new Date(opens + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  return `Opens in ${n} day${n === 1 ? "" : "s"}, on ${d}. Three quick questions, then cycle ${plan.cycleNumber + 1} is built from your results.`;
 }
 
 export const MUSCLES: Record<string, string[]> = {

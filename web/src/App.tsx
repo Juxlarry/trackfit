@@ -15,6 +15,7 @@ const TodayPage = lazy(() => import("./app/TodayPage").then((m) => ({ default: m
 const TrainPage = lazy(() => import("./app/TrainPage").then((m) => ({ default: m.TrainPage })));
 const FuelPage = lazy(() => import("./app/FuelPage").then((m) => ({ default: m.FuelPage })));
 const ProgressPage = lazy(() => import("./app/ProgressPage").then((m) => ({ default: m.ProgressPage })));
+const CheckinPage = lazy(() => import("./app/CheckinPage").then((m) => ({ default: m.CheckinPage })));
 const SessionPage = lazy(() => import("./app/SessionPage").then((m) => ({ default: m.SessionPage })));
 // MVP 1 screens (and recharts).
 const WeightPage = lazy(() => import("./pages/WeightPage").then((m) => ({ default: m.WeightPage })));
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/fuel" element={<FuelPage />} />
         <Route path="/progress" element={<ProgressPage />} />
         <Route path="/session/:templateId" element={<SessionPage />} />
+        <Route path="/checkin" element={<CheckinPage />} />
         <Route path="/weight" element={<Legacy><WeightPage /></Legacy>} />
         <Route path="/workouts" element={<Legacy><WorkoutsPage /></Legacy>} />
         <Route path="/templates" element={<Legacy><TemplatesPage /></Legacy>} />

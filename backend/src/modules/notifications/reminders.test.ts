@@ -63,7 +63,7 @@ test("weigh-in: 07:30 on plan days 7, 14, 21, 28 and 35, unless weighed in the l
   assert.deepEqual(kinds(plan, "2026-11-09", "07:30"), ["WEIGH_IN"], "day 7");
   assert.deepEqual(kinds(plan, "2026-11-10", "07:30"), [], "day 8");
   assert.deepEqual(kinds(plan, "2026-11-30", "07:45"), ["WEIGH_IN"], "day 28");
-  assert.deepEqual(kinds(plan, "2026-12-14", "07:30"), [], "day 42 belongs to the check-in");
+  assert.deepEqual(kinds(plan, "2026-12-14", "07:30"), ["CHECKIN_READY"], "day 42 belongs to the check-in");
   assert.deepEqual(kinds(plan, "2026-11-09", "07:30", { ...none, weighedRecently: true }), []);
   assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, weighIn: false } }, "2026-11-09", "07:30"), []);
 });
@@ -85,6 +85,17 @@ test("missed session: 08:00 the morning after a planned session with nothing log
   assert.deepEqual(kinds(plan, "2026-11-03", "08:00", { ...none, loggedYesterday: true }), []);
   assert.deepEqual(kinds(plan, "2026-11-04", "08:00"), [], "yesterday was a rest day");
   assert.deepEqual(kinds(plan, "2026-11-02", "08:00"), [], "no session the day before the plan");
-  assert.deepEqual(kinds(plan, "2026-12-14", "08:00"), [], "nothing on the cycle's last day (Sunday)");
+  assert.deepEqual(kinds(plan, "2026-12-14", "08:00"), ["CHECKIN_READY"], "no missed session after a rest day (Sunday), just the check-in");
   assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, missedSession: false } }, "2026-11-03", "08:00"), []);
+});
+
+test("check-in: 07:30 on days 40, 41 and 42, not switchable", () => {
+  const off = { ...plan, prefs: { weighIn: false, progressPhotos: false, missedSession: false } };
+  assert.deepEqual(kinds(off, "2026-12-11", "07:30"), [], "day 39");
+  assert.deepEqual(kinds(off, "2026-12-12", "07:30"), ["CHECKIN_READY"], "day 40");
+  assert.deepEqual(kinds(off, "2026-12-13", "07:30"), ["CHECKIN_READY"]);
+  const last = dueReminders(off, at("2026-12-14", "07:30"), none);
+  assert.equal(last[0].msg.title, "Your cycle is done. Check in to start the next one", "day 42, the day after the cycle ends");
+  assert.equal(last[0].msg.url, "/checkin");
+  assert.deepEqual(kinds(off, "2026-12-15", "07:30"), [], "day 43: stops");
 });

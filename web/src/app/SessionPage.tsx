@@ -54,9 +54,9 @@ export function SessionPage() {
 
   // Last time: the most recent logged set with the same exercise and set number.
   const last = useMemo(() => {
-    const m = new Map<string, { weightKg: number; reps: number }>();
+    const m = new Map<string, { weightKg: number; reps: number; startedAt: string }>();
     const hist = [...(histQ.data?.workoutHistory ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-    for (const h of hist) for (const s of h.sets) { const k = `${s.exercise.id}:${s.setNumber}`; if (!m.has(k)) m.set(k, s); }
+    for (const h of hist) for (const s of h.sets) { const k = `${s.exercise.id}:${s.setNumber}`; if (!m.has(k)) m.set(k, { ...s, startedAt: h.startedAt }); }
     return m;
   }, [histQ.data]);
 
@@ -67,6 +67,8 @@ export function SessionPage() {
   const suggested = (e: PlannedExerciseDto) => (e.suggestedLoadKg != null ? units.toDisplay(e.suggestedLoadKg) : null);
   const placeholderKg = (e: PlannedExerciseDto, si: number) => {
     const l = e.exerciseId ? last.get(`${e.exerciseId}:${si + 1}`) : undefined;
+    // New cycle: the check-in's weight until this exercise is logged in it.
+    if (e.startLoadKg != null && !(l && l.startedAt.slice(0, 10) >= plan.startDate)) return String(units.toDisplay(e.startLoadKg));
     if (l && l.weightKg > 0) return String(units.toDisplay(l.weightKg));
     const s = suggested(e);
     return s != null ? String(Math.round(s)) : "BW";

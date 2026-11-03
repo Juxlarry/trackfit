@@ -13,7 +13,7 @@ import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, greeting, localToday } from "../
 import { usePushStatus } from "../lib/push";
 import { ViewHead } from "./AppLayout";
 import { ACT_ICON, useSheets } from "./AppSheets";
-import { CYCLE_DAYS, SLOT_LABEL, checkinText, cycleWeek, firstSessionFrom, musclesFor, readFlags, sessionOn, sessionsByDate, weekDates } from "./planUtil";
+import { CYCLE_DAYS, SLOT_LABEL, checkinIsOpen, checkinText, cycleWeek, firstSessionFrom, musclesFor, readFlags, sessionOn, sessionsByDate, weekDates } from "./planUtil";
 
 export function Peek({ pattern }: { pattern: string | null }) {
   const p = pattern ?? "squat";
@@ -64,7 +64,20 @@ export function TodayPage() {
   const lightGhost = { borderColor: "color-mix(in srgb,var(--hero-fg) 28%,transparent)", color: "var(--hero-fg)" } as CSSProperties;
 
   let hero;
-  if (before) {
+  // From day 40 the check-in takes the top card, except while a workout is still to do on days 40-41.
+  if (checkinIsOpen(plan, today) && (today > plan.endDate || !s || !!doneToday)) {
+    hero = (
+      <section className="hero-card fadein">
+        <div className="hero-pad">
+          <p className="k">Cycle {plan.cycleNumber} {today > plan.endDate ? "is done" : "ends " + dayLabel(plan.endDate)}</p>
+          <h2>Check in to build cycle {plan.cycleNumber + 1}</h2>
+          <p>See what six weeks did, answer three questions, and get a plan tuned to your results. Two minutes.</p>
+          <div className="row"><button type="button" className="cta small-cta pulse" onClick={() => navigate("/checkin")}>Start my check-in<ArrowRight /></button></div>
+        </div>
+        <Peek pattern="squat" />
+      </section>
+    );
+  } else if (before) {
     const f = firstSessionFrom(plan, plan.startDate);
     const n = daysBetween(today, plan.startDate);
     hero = (
@@ -141,8 +154,8 @@ export function TodayPage() {
   const showEss = essDone < 4 && daysBetween(plan.startDate, today) < 7;
 
   const menu = mealQ.data?.mealDay;
-  const eatK = (menu?.items ?? []).filter((m) => m.eaten).reduce((a, m) => a + m.kcal, 0);
-  const nextMeal = menu?.items.find((m) => !m.eaten);
+  const eatK = menu?.eaten.kcal ?? 0;
+  const nextMeal = menu?.items.find((m) => !m.eaten && !m.skipped);
   const tip = tipFor(plan);
   const acts = actQ.data?.activityLogs ?? [];
   const elapsed = Math.min(100, Math.max(4, (daysBetween(plan.startDate, today) / CYCLE_DAYS) * 100));
@@ -210,6 +223,7 @@ export function TodayPage() {
           <section className="card fadein" style={{ "--d": ".24s" } as CSSProperties}>
             <div className="card-h"><div><h3>Cycle check-in</h3><p>{checkinText(plan, today)}</p></div></div>
             <div className="ess-bar" style={{ margin: 0 }}><i style={{ width: `${elapsed}%` }} /></div>
+            {checkinIsOpen(plan, today) && <button type="button" className="cta" style={{ marginTop: 16 }} onClick={() => navigate("/checkin")}>Start my check-in<ArrowRight /></button>}
           </section>
         </div>
       </div>

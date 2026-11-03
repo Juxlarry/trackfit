@@ -177,7 +177,7 @@ export const PLAN_FIELDS = gql`
       type
       name
       warmup { name dose }
-      exercises { exerciseId name pattern sets reps isCore swapped replaces suggestedLoadKg }
+      exercises { exerciseId name pattern sets reps isCore swapped replaces suggestedLoadKg startLoadKg }
     }
     restDays { weekday suggestion }
     adaptations { icon text }
@@ -233,13 +233,23 @@ export const SET_REMINDER = gql`
   ${PLAN_FIELDS}
 `;
 
+export const FOOD_LOG_FIELDS = gql`
+  fragment FoodLogFields on FoodLog {
+    id slot foodKey customFoodId name portionLabel portionIndex grams quantity kcal proteinG carbsG fatG replacedSlotIndex
+  }
+`;
+
 export const MEAL_DAY_FIELDS = gql`
   fragment MealDayFields on DayMenu {
     date
     proteinShortfallG
     targets { kcal proteinG carbsG fatG }
-    items { slotIndex slot recipeKey name portionGuide portionFactor kcal proteinG carbsG fatG eaten }
+    items { slotIndex slot recipeKey name portionGuide portionFactor kcal proteinG carbsG fatG eaten skipped }
+    foods { ...FoodLogFields }
+    water { ml targetMl targetText }
+    eaten { kcal proteinG carbsG fatG }
   }
+  ${FOOD_LOG_FIELDS}
 `;
 
 export const MEAL_DAY = gql`
@@ -264,6 +274,33 @@ export const SWAP_MEAL = gql`
   mutation SwapMeal($date: String!, $slotIndex: Int!, $recipeKey: String!) {
     swapMeal(date: $date, slotIndex: $slotIndex, recipeKey: $recipeKey) { ...MealDayFields }
   }
+  ${MEAL_DAY_FIELDS}
+`;
+
+export const MY_FOODS = gql`
+  query MyFoods {
+    myFoods { custom { id name kcal proteinG carbsG fatG } recent { ...FoodLogFields } }
+  }
+  ${FOOD_LOG_FIELDS}
+`;
+
+export const LOG_FOOD = gql`
+  mutation LogFood($input: LogFoodInput!) { logFood(input: $input) { ...MealDayFields } }
+  ${MEAL_DAY_FIELDS}
+`;
+
+export const CHANGE_FOOD_LOG = gql`
+  mutation ChangeFoodLog($id: ID!, $change: FoodLogChange!) { changeFoodLog(id: $id, change: $change) { ...MealDayFields } }
+  ${MEAL_DAY_FIELDS}
+`;
+
+export const REMOVE_FOOD_LOG = gql`
+  mutation RemoveFoodLog($id: ID!) { removeFoodLog(id: $id) { ...MealDayFields } }
+  ${MEAL_DAY_FIELDS}
+`;
+
+export const SET_WATER = gql`
+  mutation SetWater($date: String!, $ml: Int!) { setWater(date: $date, ml: $ml) { ...MealDayFields } }
   ${MEAL_DAY_FIELDS}
 `;
 
@@ -333,4 +370,35 @@ export const REMINDER_PREFS = gql`
 
 export const SET_REMINDER_PREFS = gql`
   mutation SetReminderPrefs($input: ReminderPrefsInput!) { setReminderPrefs(input: $input) { weighIn progressPhotos missedSession } }
+`;
+
+export const CYCLE_CHECKIN = gql`
+  query CycleCheckin($today: String!) {
+    cycleCheckin(today: $today) {
+      open opensOn cycleNumber currentDays currentKcal goal targetWeightKg dayRange { min max }
+      results {
+        startKg endKg changeKg plannedChangeKg sessionsPlanned sessionsDone adherence needsWeighIn goalReached
+        suggestedDays suggestedTargetKg bestLift { name fromKg toKg }
+      }
+      eatingLog { loggedDays onTargetDays suggested }
+    }
+  }
+`;
+
+export const PREVIEW_NEXT_CYCLE = gql`
+  query PreviewNextCycle($today: String!, $answers: CheckinAnswersInput!) {
+    previewNextCycle(today: $today, answers: $answers) {
+      daysPerWeek splitLabel
+      targets { kcal proteinG carbsG fatG }
+      changes { icon title why }
+      sessions { weekday name exercises { name sets reps rotatedFrom startLoadKg } }
+    }
+  }
+`;
+
+export const COMPLETE_CHECKIN = gql`
+  mutation CompleteCheckin($today: String!, $answers: CheckinAnswersInput!, $startDate: String!) {
+    completeCheckin(today: $today, answers: $answers, startDate: $startDate) { ...PlanFields }
+  }
+  ${PLAN_FIELDS}
 `;

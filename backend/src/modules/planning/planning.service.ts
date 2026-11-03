@@ -20,7 +20,7 @@ import {
 } from "../nutrition/nutrition.repository.js";
 import { welcomeEmail } from "./welcome-email.js";
 
-const CYCLE_DAYS = 42; // 6-week cycle (spec §4.8.7, §9.4)
+export const CYCLE_DAYS = 42; // 6-week cycle (spec §4.8.7, §9.4)
 export const todayIso = () => toIsoDate(new Date());
 
 /** Start dates: from yesterday (time-zone slack) up to 4 weeks out (onboarding-flow.md). */
@@ -136,7 +136,7 @@ export interface ActivePlan {
   splitLabel: string;
   targets: ReturnType<typeof computeTargets>;
   projection: ReturnType<typeof computeProjection>;
-  sessions: (StoredSession & { exercises: (StoredSession["exercises"][number] & { suggestedLoadKg: number | null })[] })[];
+  sessions: (StoredSession & { exercises: (StoredSession["exercises"][number] & { suggestedLoadKg: number | null; startLoadKg: number | null })[] })[];
   restDays: { weekday: number; suggestion: string }[];
   adaptations: ReturnType<typeof adaptations>;
   /** Day swaps the user made, per week, in order. The plan's week (sessions) is unchanged by them. */
@@ -162,7 +162,10 @@ export async function getActivePlan(userId: string): Promise<ActivePlan | null> 
     splitLabel: program.splitLabel,
     targets: { bmr: computed.bmr, tdee: computed.tdee, kcal: nplan.dailyKcal, proteinG: nplan.proteinG, carbsG: nplan.carbsG, fatG: nplan.fatG },
     projection: computeProjection(t, program.startDate),
-    sessions: sessions.map((s) => ({ ...s, exercises: s.exercises.map((e) => ({ ...e, suggestedLoadKg: suggestLoadKg(e.name, t) })) })),
+    sessions: sessions.map((s) => ({
+      ...s,
+      exercises: s.exercises.map((e) => ({ ...e, suggestedLoadKg: suggestLoadKg(e.name, t), startLoadKg: program.startLoads[e.name] ?? null })),
+    })),
     restDays,
     adaptations: adaptations(t, diet, week),
     scheduleSwaps,
@@ -180,8 +183,9 @@ export async function setTrainingDays(userId: string, days: number): Promise<Act
     throw badInput(`You can train ${range.min} to ${range.max} days a week, based on the ${program.onboardingDays} you chose.`, [{ field: "days", message: "Out of range." }]);
   }
   if (days !== program.daysPerWeek) {
-    const week = buildWeek(intake.training, days);
-    const targets = computeTargets(intake.training, days);
+    // Keep what the week-6 check-in decided (rotation, set changes, calorie correction).
+    const week = buildWeek(intake.training, days, program.buildOptions);
+    const targets = computeTargets(intake.training, days, program.kcalOffset);
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { pool } from "../../shared/db/pool.js";
 import type {
-  HealthScreening, PlannedSession, SessionType, TrainingInput, WarmupItem, WeekPlan,
+  BuildOptions, GoalType, HealthScreening, LoggedSet, PlannedSession, SessionType, TrainingInput, WarmupItem, WeekPlan,
 } from "./engine/index.js";
 import { exerciseMeta, patternOf } from "./engine/index.js";
 
@@ -118,20 +118,26 @@ export interface ProgramRow {
   onboardingDays: number;
   daysPerWeek: number;
   splitLabel: string;
+  /** Set by the week-6 check-in; empty for a first cycle. */
+  buildOptions: BuildOptions;
+  startLoads: Record<string, number>;
+  kcalOffset: number;
 }
+
+const PROGRAM_COLS = `id, user_id, cycle_number, to_char(start_date,'YYYY-MM-DD') AS start_date, to_char(end_date,'YYYY-MM-DD') AS end_date,
+  status, onboarding_days, days_per_week, split_label, build_options, start_loads, kcal_offset`;
 
 function mapProgram(r: any): ProgramRow {
   return {
     id: r.id, userId: r.user_id, cycleNumber: r.cycle_number, startDate: r.start_date, endDate: r.end_date,
     status: r.status, onboardingDays: r.onboarding_days, daysPerWeek: r.days_per_week, splitLabel: r.split_label,
+    buildOptions: r.build_options ?? {}, startLoads: r.start_loads ?? {}, kcalOffset: r.kcal_offset ?? 0,
   };
 }
 
 export async function getActiveProgram(userId: string, db: Db = pool): Promise<ProgramRow | null> {
   const { rows } = await db.query(
-    `SELECT id, user_id, cycle_number, to_char(start_date,'YYYY-MM-DD') AS start_date, to_char(end_date,'YYYY-MM-DD') AS end_date,
-            status, onboarding_days, days_per_week, split_label
-     FROM tracking.generated_programs WHERE user_id = $1 AND status = 'ACTIVE'`,
+    `SELECT ${PROGRAM_COLS} FROM tracking.generated_programs WHERE user_id = $1 AND status = 'ACTIVE'`,
     [userId],
   );
   return rows[0] ? mapProgram(rows[0]) : null;
@@ -153,14 +159,18 @@ export async function archiveActiveProgram(db: Db, userId: string): Promise<numb
 
 export async function insertProgram(
   db: Db,
-  p: { userId: string; cycleNumber: number; startDate: string; endDate: string; onboardingDays: number; daysPerWeek: number; splitLabel: string },
+  p: {
+    userId: string; cycleNumber: number; startDate: string; endDate: string; onboardingDays: number; daysPerWeek: number; splitLabel: string;
+    buildOptions?: BuildOptions; startLoads?: Record<string, number>; kcalOffset?: number;
+  },
 ): Promise<ProgramRow> {
   const { rows } = await db.query(
-    `INSERT INTO tracking.generated_programs (user_id, cycle_number, start_date, end_date, onboarding_days, days_per_week, split_label)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     RETURNING id, user_id, cycle_number, to_char(start_date,'YYYY-MM-DD') AS start_date, to_char(end_date,'YYYY-MM-DD') AS end_date,
-               status, onboarding_days, days_per_week, split_label`,
-    [p.userId, p.cycleNumber, p.startDate, p.endDate, p.onboardingDays, p.daysPerWeek, p.splitLabel],
+    `INSERT INTO tracking.generated_programs
+       (user_id, cycle_number, start_date, end_date, onboarding_days, days_per_week, split_label, build_options, start_loads, kcal_offset)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING ${PROGRAM_COLS}`,
+    [p.userId, p.cycleNumber, p.startDate, p.endDate, p.onboardingDays, p.daysPerWeek, p.splitLabel,
+      JSON.stringify(p.buildOptions ?? {}), JSON.stringify(p.startLoads ?? {}), p.kcalOffset ?? 0],
   );
   return mapProgram(rows[0]);
 }
@@ -304,4 +314,50 @@ export async function listActiveSessions(programId: string, db: Db = pool): Prom
     });
   }
   return [...byTemplate.values()].sort((a, b) => a.weekday - b.weekday);
+}
+
+// ── Week-6 check-in ───────────────────────────────────────────────────────
+
+/** The user's local calendar for grouping logs: their saved time zone, else UTC. */
+const LOCAL = `COALESCE((SELECT time_zone FROM identity.users WHERE id = $1), 'UTC')`;
+
+/** Everything the check-in measures, from `from` (YYYY-MM-DD) on, by local date. */
+export async function cycleLogs(userId: string, from: string, db: Db = pool): Promise<{
+  weights: { date: string; kg: number }[]; workoutDates: string[]; sets: LoggedSet[];
+}> {
+  const [w, s] = await Promise.all([
+    db.query(
+      `SELECT to_char((recorded_at AT TIME ZONE ${LOCAL})::date, 'YYYY-MM-DD') AS date, weight_kg
+       FROM tracking.weight_entries WHERE user_id = $1 AND recorded_at >= $2::date - 1 ORDER BY recorded_at`,
+      [userId, from],
+    ),
+    db.query(
+      `SELECT to_char((ws.started_at AT TIME ZONE ${LOCAL})::date, 'YYYY-MM-DD') AS date, e.name, sl.weight_kg, sl.reps
+       FROM tracking.workout_sessions ws
+       LEFT JOIN tracking.set_logs sl ON sl.session_id = ws.id
+       LEFT JOIN tracking.exercises e ON e.id = sl.exercise_id
+       WHERE ws.user_id = $1 AND ws.started_at >= $2::date - 1`,
+      [userId, from],
+    ),
+  ]);
+  return {
+    weights: w.rows.map((r) => ({ date: r.date, kg: Number(r.weight_kg) })),
+    workoutDates: [...new Set(s.rows.map((r) => r.date as string))],
+    sets: s.rows.filter((r) => r.name).map((r) => ({ name: r.name, date: r.date, weightKg: Number(r.weight_kg ?? 0), reps: Number(r.reps ?? 0) })),
+  };
+}
+
+/** The intake fields a check-in moves on: current weight, the day count anchor and (when reached) the goal. */
+export async function updateIntakeForCycle(db: Db, userId: string, t: { weightKg: number; daysPerWeek: number; goal: GoalType; targetWeightKg: number | null }) {
+  await db.query(
+    `UPDATE identity.intake_profiles SET weight_kg = $2, days_per_week = $3, goal_type = $4, target_weight_kg = $5, updated_at = now() WHERE user_id = $1`,
+    [userId, t.weightKg, t.daysPerWeek, t.goal, t.targetWeightKg],
+  );
+}
+
+export async function insertCheckin(db: Db, c: { userId: string; programId: string; nextProgramId: string; answers: unknown; results: unknown; changes: unknown }) {
+  await db.query(
+    `INSERT INTO tracking.cycle_checkins (user_id, program_id, next_program_id, answers, results, changes) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [c.userId, c.programId, c.nextProgramId, JSON.stringify(c.answers), JSON.stringify(c.results), JSON.stringify(c.changes)],
+  );
 }

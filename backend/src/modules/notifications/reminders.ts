@@ -1,4 +1,4 @@
-import { addDaysIso, daysBetween, mondayOf, swappedOrder, weekdayOf, type DaySwap } from "../planning/engine/index.js";
+import { addDaysIso, daysBetween, sessionOnDate, weekdayOf } from "../planning/engine/index.js";
 import { listActiveSessions, listScheduleSwaps, type ScheduleSwapRow } from "../planning/planning.repository.js";
 import {
   claimReminder, listReminderCandidates, reminderFacts, releaseReminder, type ReminderCandidate, type ReminderFacts, type ReminderKind, type ReminderPrefsRow,
@@ -17,6 +17,8 @@ import { pushPublicKey, sendPushToUser, type PushMessage } from "./push.js";
  *    reminder is off or not needed.
  *  - MISSED_SESSION at 08:00 the day after a planned session with no workout
  *    logged.
+ *  - CHECKIN_READY at 07:30 on days 40, 41 and 42 until the week-6 check-in is
+ *    done (doing it starts a new cycle, so the days no longer match). Always on.
  * The last three can each be turned off (notifications.reminder_prefs).
  *
  * runReminderJob is called every few minutes (in-process timer, plus an
@@ -30,6 +32,7 @@ const MORNING_MINUTES = 7 * 60 + 30;
 const MISSED_MINUTES = 8 * 60;
 const WEIGH_IN_DAYS = [7, 14, 21, 28, 35];
 const PHOTO_DAYS: Record<number, string> = { 14: "Week 3", 35: "Week 6" };
+const CHECKIN_DAYS = [40, 41, 42];
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export interface LocalNow { date: string; minutes: number }
@@ -66,12 +69,7 @@ export interface ReminderPlan {
   swaps: ScheduleSwapRow[];
 }
 
-/** The session on a date after that week's swaps (mirrors web planUtil.sessionOn). */
-export function sessionOn(plan: ReminderPlan, iso: string) {
-  const swaps: DaySwap[] = plan.swaps.filter((s) => s.weekStart === mondayOf(iso)).map((s) => [s.dayA, s.dayB]);
-  const weekday = swappedOrder(swaps)[weekdayOf(iso)];
-  return plan.sessions.find((s) => s.weekday === weekday);
-}
+const sessionOn = (plan: ReminderPlan, iso: string) => sessionOnDate(plan.sessions, plan.swaps, iso);
 
 export interface DueReminder { kind: ReminderKind; msg: PushMessage }
 
@@ -124,6 +122,15 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderF
     }
   }
 
+  if (inWindow(now.minutes, MORNING_MINUTES) && CHECKIN_DAYS.includes(day)) {
+    due.push({
+      kind: "CHECKIN_READY",
+      msg: day < 42
+        ? { title: "Your week-6 check-in is open", body: "Two minutes, three questions, then your next cycle is built from your results.", url: "/checkin", tag: "checkin" }
+        : { title: "Your cycle is done. Check in to start the next one", body: "See what 6 weeks did, then get a plan built from it. Two minutes.", url: "/checkin", tag: "checkin" },
+    });
+  }
+
   if (plan.prefs.missedSession && inWindow(now.minutes, MISSED_MINUTES) && !facts.loggedYesterday) {
     const yesterday = addDaysIso(now.date, -1);
     const s = inPlan(yesterday) ? sessionOn(plan, yesterday) : undefined;
@@ -142,6 +149,7 @@ function maybeDue(c: ReminderCandidate, now: LocalNow): boolean {
   const day = daysBetween(c.startDate, now.date);
   if (inWindow(now.minutes, EVE_MINUTES) && day < 7) return true;
   if (inWindow(now.minutes, MORNING_MINUTES) && (c.prefs.weighIn || c.prefs.progressPhotos) && WEIGH_IN_DAYS.includes(day)) return true;
+  if (inWindow(now.minutes, MORNING_MINUTES) && CHECKIN_DAYS.includes(day)) return true;
   if (inWindow(now.minutes, MISSED_MINUTES) && c.prefs.missedSession && day >= 1 && now.date <= addDaysIso(c.endDate, 1)) return true;
   return !!c.reminderTime && inWindow(now.minutes, toMinutes(c.reminderTime)) && now.date >= c.startDate && now.date <= c.endDate;
 }

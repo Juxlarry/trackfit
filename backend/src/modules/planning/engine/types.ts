@@ -115,6 +115,20 @@ export interface PlannedExercise {
   swapped: boolean;
   /** The exercise this one replaced because of an injury, when swapped. */
   replaces: string | null;
+  /** Last cycle's exercise in this slot, when the new cycle rotated it for variety. */
+  rotatedFrom?: string | null;
+}
+
+/** How a cycle's week differs from a fresh one (set by the week-6 check-in). */
+export interface BuildOptions {
+  /** From cycle 2, accessory exercises rotate through same-muscle alternatives. Main lifts stay. */
+  cycle?: number;
+  /** +1 on main lifts when last cycle felt too easy (max 5 sets). */
+  mainSetDelta?: number;
+  /** −1 on accessories when it felt too hard (min 2 sets). */
+  accessorySetDelta?: number;
+  /** Last cycle's exercises the user chose to keep instead of rotating. */
+  keep?: string[];
 }
 
 export interface WarmupItem {

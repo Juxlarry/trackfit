@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@apollo/client/react";
-import { Camera, CircleAlert, HeartPulse, Loader, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowRight, Camera, CircleAlert, HeartPulse, Loader, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
 import { addDaysIso, daysBetween, mondayOf } from "@engine";
 import { ACTIVITY_LOGS, LAST_SETS, SESSIONS_BETWEEN, WEIGHT_HISTORY } from "../graphql/operations";
 import type { ActivePlanDto, ActivityDto, SessionSummaryDto } from "../graphql/types";
@@ -11,7 +12,7 @@ import { MEDIA_SLOTS, checkMediaFile, deleteMedia, listMedia, mediaErrorMessage,
 import { ViewHead } from "./AppLayout";
 import { useSheets } from "./AppSheets";
 import { ActivityRow } from "./TodayPage";
-import { CYCLE_DAYS, checkinText, localDateOf, sessionOn, sessionsByDate } from "./planUtil";
+import { CYCLE_DAYS, checkinIsOpen, checkinText, localDateOf, sessionOn, sessionsByDate } from "./planUtil";
 
 interface WeightRow { id: string; weightKg: number; recordedAt: string }
 interface HistSet { setNumber: number; reps: number; weightKg: number; exercise: { id: string } }
@@ -240,6 +241,7 @@ export function ProgressPage() {
           </section>
           <section className="card fadein" style={{ "--d": ".2s" } as CSSProperties}>
             <div className="card-h"><div><h3>Cycle check-in</h3><p>{checkinText(plan, today)}</p></div></div>
+            {checkinIsOpen(plan, today) && <Link className="cta" style={{ minWidth: 0 }} to="/checkin">Start my check-in<ArrowRight /></Link>}
           </section>
         </div>
       </div>

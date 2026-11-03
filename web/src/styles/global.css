@@ -5,7 +5,7 @@
   --paper:#F6F4EE; --sunk:#ECEADF; --card:#FCFBF7; --sage:#E3EFD9;
   --ink:#12261E; --ink-2:#3D5047; --ink-3:#66766D; --line:#D6DACB;
   --lime:#C8F25A; --lime-ink:#12261E; --mark:#C8F25A;
-  --coral:#FF6B4A; --coral-text:#B4391C;
+  --coral:#FF6B4A; --coral-text:#B4391C; --water:#3B8FD9;
   --sel-bg:#12261E; --sel-fg:#F6F4EE; --sel-tick:#C8F25A; --sel-accent:#FF9A80;
   --shadow:18 38 30;
   --f-display:"Bricolage Grotesque Variable", "Onest Variable", system-ui, sans-serif;
@@ -17,14 +17,14 @@
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --paper:#0F1A15; --sunk:#14221B; --card:#172820; --sage:#1B2E24;
   --ink:#EEF2E6; --ink-2:#C2CEC3; --ink-3:#8E9E93; --line:#2C3E35;
-  --mark:rgba(200,242,90,.32); --coral:#FF7A5C; --coral-text:#FF9C83;
+  --mark:rgba(200,242,90,.32); --coral:#FF7A5C; --coral-text:#FF9C83; --water:#6AB4F0;
   --sel-bg:#EEF2E6; --sel-fg:#0F1A15; --sel-tick:#12261E; --sel-accent:#B4391C; --shadow:0 0 0;
   color-scheme:dark;
 }}
 :root[data-theme="dark"]{
   --paper:#0F1A15; --sunk:#14221B; --card:#172820; --sage:#1B2E24;
   --ink:#EEF2E6; --ink-2:#C2CEC3; --ink-3:#8E9E93; --line:#2C3E35;
-  --mark:rgba(200,242,90,.32); --coral:#FF7A5C; --coral-text:#FF9C83;
+  --mark:rgba(200,242,90,.32); --coral:#FF7A5C; --coral-text:#FF9C83; --water:#6AB4F0;
   --sel-bg:#EEF2E6; --sel-fg:#0F1A15; --sel-tick:#12261E; --sel-accent:#B4391C; --shadow:0 0 0;
   color-scheme:dark;
 }
@@ -778,3 +778,33 @@ a.tab,a.linkbtn,a.li,.back-link{text-decoration:none;color:inherit}
 .returning p{margin:0;font-size:15px;color:var(--ink-2);flex:1 1 260px;max-width:none}
 .returning p b{color:var(--ink)}
 .returning .ghost{text-decoration:none;color:var(--ink);font-weight:600;white-space:nowrap;background:var(--card)}
+
+/* fuel: logged foods and water */
+.meal-card.skipped .nm{color:var(--ink-3);text-decoration:line-through;text-decoration-thickness:1px}
+.meal-card.food-log{width:100%;text-align:left;font:inherit;color:inherit;border-radius:0;cursor:pointer}
+.meal-card.food-log > span{display:block;min-width:0}
+.meal-card.food-log .slot,.meal-card.food-log .nm,.meal-card.food-log .how{display:block}
+.meal-card.food-log:hover .nm{text-decoration:underline;text-underline-offset:3px}
+.food-search{position:relative;margin:14px 0 6px}
+.food-search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--ink-3);pointer-events:none}
+.food-search .txt{width:100%;padding-left:42px;font-size:16px}
+.food-h{display:flex;align-items:center;gap:6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:18px 0 8px}
+.food-h svg{width:14px;height:14px}
+.food-list{gap:8px}
+.food-list .opt .tick{background:var(--sunk);border-color:var(--sunk);color:var(--ink)}
+.food-list .opt .tick svg{opacity:1;transform:none}
+.food-sum{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 8px;margin-top:18px;padding:14px 16px;border-radius:14px;background:var(--sage)}
+.food-sum b{font-family:var(--f-mono);font-size:26px}
+.food-sum i{font-style:normal;font-size:13px;color:var(--ink-2);flex-basis:100%}
+.water-presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:14px}
+.wp{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);text-align:left;transition:border-color .2s,transform .2s var(--ease)}
+.wp:hover{border-color:var(--ink-3)}
+.wp:active{transform:scale(.97)}
+.wp svg{width:16px;height:16px;color:var(--water);flex:none}
+.wp > span:nth-child(2){display:flex;flex-direction:column;min-width:0;flex:1}
+.wp b{font-size:13.5px;font-weight:600}
+.wp i{font-style:normal;font-size:12px;color:var(--ink-3)}
+.wp .ml{font-family:var(--f-mono);font-size:12.5px;font-weight:600;white-space:nowrap}
+.water-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.water-edit{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.water-edit .txt{width:120px;padding:8px 12px;font-size:16px}

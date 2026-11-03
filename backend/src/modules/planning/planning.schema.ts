@@ -117,6 +117,10 @@ export const planningTypeDefs = /* GraphQL */ `
     swapped: Boolean!
     replaces: String
     suggestedLoadKg: Float
+    "Starting weight from weeks 5-6 of the last cycle (week-6 check-in). Use it until the first log this cycle."
+    startLoadKg: Float
+    "In a check-in preview: last cycle's exercise this one replaces for variety."
+    rotatedFrom: String
   }
   type PlannedSession {
     "Generated workout template id (present on saved plans, null in previews)."
@@ -145,12 +149,19 @@ export const planningTypeDefs = /* GraphQL */ `
     carbsG: Int!
     fatG: Int!
     eaten: Boolean!
+    "Replaced by a logged food, so it doesn't count."
+    skipped: Boolean!
   }
   type DayMenu {
     date: String!
     items: [MenuItem!]!
     proteinShortfallG: Int!
     targets: PlanTargets
+    "Foods logged that day (empty on previews)."
+    foods: [FoodLog!]!
+    "Null on previews."
+    water: WaterDay
+    eaten: DayTotals!
   }
 
   type PlanPreview {
@@ -213,7 +224,72 @@ export const planningTypeDefs = /* GraphQL */ `
     plan: ActivePlan
   }
 
+  enum WorkoutFeel { TOO_EASY ABOUT_RIGHT TOO_HARD }
+  enum EatingAdherence { MOST_DAYS SOME_DAYS HARD }
+  enum GoalChoice { NEW_TARGET MAINTAIN }
+
+  type BestLift { name: String! fromKg: Float! toKg: Float! }
+  "What a cycle achieved, from logged weigh-ins and workouts."
+  type CycleResults {
+    startKg: Float!
+    endKg: Float
+    changeKg: Float
+    "Signed change the plan aimed for over 6 weeks (0 for maintain, recomp, fitness)."
+    plannedChangeKg: Float!
+    sessionsPlanned: Int!
+    sessionsDone: Int!
+    adherence: Float!
+    bestLift: BestLift
+    "No weigh-in in the last 3 days: log one before the check-in."
+    needsWeighIn: Boolean!
+    goalReached: Boolean!
+    suggestedDays: Int!
+    suggestedTargetKg: Float
+  }
+  type EatingLog {
+    loggedDays: Int!
+    "Logged days within 10% of the calorie target."
+    onTargetDays: Int!
+    "Pre-answer for the eating question, when at least half the days were logged."
+    suggested: EatingAdherence
+  }
+  type CycleCheckin {
+    "From day 40 of the cycle."
+    open: Boolean!
+    opensOn: String!
+    cycleNumber: Int!
+    dayRange: DayRange!
+    currentDays: Int!
+    currentKcal: Int!
+    goal: String!
+    targetWeightKg: Float
+    results: CycleResults!
+    eatingLog: EatingLog!
+  }
+  type CycleChange { icon: String! title: String! why: String! }
+  type CyclePreview {
+    changes: [CycleChange!]!
+    targets: PlanTargets!
+    daysPerWeek: Int!
+    splitLabel: String!
+    sessions: [PlannedSession!]!
+  }
+  input CheckinAnswersInput {
+    feel: WorkoutFeel!
+    eating: EatingAdherence!
+    days: Int!
+    "Only when the goal was reached."
+    goalChoice: GoalChoice
+    newTargetKg: Float
+    "Last cycle's exercises to keep instead of the suggested replacements."
+    keep: [String!]
+  }
+
   extend type Query {
+    "The week-6 check-in for the active cycle. today is the caller's local date (YYYY-MM-DD)."
+    cycleCheckin(today: String!): CycleCheckin
+    "What the next cycle would look like with these answers. Nothing is saved."
+    previewNextCycle(today: String!, answers: CheckinAnswersInput!): CyclePreview!
     "Generates a plan without saving it. No sign-in needed (used before sign-up and by the mobile app)."
     previewPlan(training: TrainingIntakeInput!, diet: DietIntakeInput!, startDate: String!): PlanPreview!
     "The signed-in user's active plan, or null if they haven't onboarded."
@@ -230,6 +306,8 @@ export const planningTypeDefs = /* GraphQL */ `
     swapSessionDays(dateA: String!, dateB: String!): ActivePlan!
     "Undo this week's swaps for the week containing date."
     resetWeekSchedule(date: String!): ActivePlan!
+    "Closes the cycle and builds the next one from the check-in. Returns the new plan."
+    completeCheckin(today: String!, answers: CheckinAnswersInput!, startDate: String!): ActivePlan!
     "HH:MM 24-hour, or null to turn reminders off."
     setWorkoutReminder(time: String): ActivePlan!
   }

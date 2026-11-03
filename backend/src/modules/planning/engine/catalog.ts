@@ -162,6 +162,51 @@ export function isIsolation(name: string): boolean {
   return (p != null && ISOLATION_PATTERNS.includes(p)) || /fly|rear-delt|face pull|pull-apart/i.test(name);
 }
 
+/** Big multi-joint lifts: they stay the same across cycles so progress stays comparable. */
+export const isMainLift = (name: string) => /squat|deadlift|press|row|pulldown|pull-up|thrust/i.test(name) && !isCoreExercise(name);
+
+/**
+ * Hand-picked swaps for accessory work, per equipment class: same muscle,
+ * same kind of movement, and nothing outside the generator's library (so
+ * every swap is seeded and has a form illustration). Bodyweight swaps lean
+ * harder, so a new cycle is also a step up. Main lifts and core never rotate.
+ */
+export const ALTERNATES: Record<EquipmentClass, Record<string, string[]>> = {
+  gym: {
+    "Cable lateral raise": ["DB lateral raise"],
+    "Face pull": ["Rear-delt fly"],
+    "Rear-delt fly": ["Face pull"],
+    "EZ-bar curl": ["Hammer curl", "DB curl"],
+    "Hammer curl": ["EZ-bar curl", "DB curl"],
+    "Rope pushdown": ["Overhead triceps extension", "DB skull crusher"],
+    "Overhead triceps extension": ["Rope pushdown", "DB skull crusher"],
+    "Cable fly": ["DB floor fly"],
+    "Walking lunge": ["Reverse lunge", "Step-up"],
+    "Standing calf raise": ["Single-leg calf raise"],
+  },
+  db: {
+    "DB curl": ["Hammer curl"],
+    "Hammer curl": ["DB curl"],
+    "DB skull crusher": ["Close-grip push-up"],
+    "Reverse lunge": ["Step-up"],
+    "Step-up": ["Reverse lunge"],
+    "Push-up": ["Decline push-up"],
+    "Incline push-up": ["Push-up"],
+    "Close-grip push-up": ["Diamond push-up"],
+  },
+  bw: {
+    "Push-up": ["Decline push-up"],
+    "Chair dip": ["Diamond push-up"],
+    "Diamond push-up": ["Chair dip"],
+    "Glute bridge": ["Single-leg glute bridge"],
+    "Band pull-apart": ["Band face pull"],
+    "Band face pull": ["Band pull-apart"],
+    "Calf raise": ["Single-leg calf raise"],
+  },
+};
+
+export const alternativesFor = (name: string, cls: EquipmentClass): string[] => (isMainLift(name) || isCoreExercise(name) ? [] : ALTERNATES[cls][name] ?? []);
+
 /** Every exercise name the generator can output (used to seed tracking.exercises). */
 export function allGeneratorExercises(): string[] {
   const names = new Set<string>();

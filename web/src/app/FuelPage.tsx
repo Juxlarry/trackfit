@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { Check, ChefHat, Clock, Info, Plus, Repeat, ShieldCheck, Utensils } from "lucide-react";
-import { weekdayOf } from "@engine";
-import { MEAL_DAY, MEAL_SWAP_OPTIONS, SET_MEAL_EATEN, SWAP_MEAL } from "../graphql/operations";
-import type { MealDayDto, MealItemDto } from "../graphql/types";
+import { Check, ChefHat, Clock, Droplet, Minus, PenLine, Plus, Repeat, ShieldCheck, Utensils } from "lucide-react";
+import { weekdayOf, type MealSlot } from "@engine";
+import { WATER_PRESETS } from "@engine/foods";
+import { MEAL_DAY, MEAL_SWAP_OPTIONS, SET_MEAL_EATEN, SET_WATER, SWAP_MEAL } from "../graphql/operations";
+import type { FoodLogDto, MealDayDto, MealItemDto } from "../graphql/types";
 import { usePlan } from "../hooks/usePlan";
 import { Ring } from "../components/ui/Ring";
 import { Sheet } from "../components/ui/Sheet";
@@ -11,9 +12,11 @@ import { useToast } from "../components/ui/Toast";
 import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, dayShort, localToday } from "../lib/dates";
 import { ViewHead } from "./AppLayout";
 import { SLOT_LABEL, weekDates } from "./planUtil";
+import { FoodSheet } from "./FoodSheet";
 
 const DIET_LABEL: Record<string, string> = { OMNIVORE: "Eats everything", HALAL: "Halal", PESCATARIAN: "Pescatarian", VEGETARIAN: "Vegetarian", VEGAN: "Vegan", OTHER: "Custom" };
 const fmt = (n: number) => n.toLocaleString("en-GB");
+const SLOT_ORDER: MealSlot[] = ["BREAKFAST", "LUNCH", "SNACK", "DINNER"];
 
 function Bar({ label, v, max, color }: { label: string; v: number; max: number; color: string }) {
   const [w, setW] = useState(0);
@@ -32,13 +35,14 @@ export function FuelPage() {
   const q = useQuery<{ mealDay: MealDayDto }>(MEAL_DAY, { variables: { date } });
   const [setEaten] = useMutation<{ setMealEaten: MealDayDto }>(SET_MEAL_EATEN);
   const [swapFor, setSwapFor] = useState<MealItemDto | null>(null);
+  // null: closed; "new": log a food; otherwise the logged food being edited.
+  const [food, setFood] = useState<FoodLogDto | "new" | null>(null);
   const m = q.data?.mealDay;
   const t = plan.targets;
-  const eaten = (m?.items ?? []).filter((x) => x.eaten);
-  const eK = eaten.reduce((a, x) => a + x.kcal, 0);
-  const eP = eaten.reduce((a, x) => a + x.proteinG, 0);
-  const eC = eaten.reduce((a, x) => a + x.carbsG, 0);
-  const eF = eaten.reduce((a, x) => a + x.fatG, 0);
+  const canLog = date <= today;
+  const { kcal: eK, proteinG: eP, carbsG: eC, fatG: eF } = m?.eaten ?? { kcal: 0, proteinG: 0, carbsG: 0, fatG: 0 };
+  const left = t.kcal - eK;
+  const foods = [...(m?.foods ?? [])].sort((a, b) => SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
   const allergies = plan.profile.allergies;
   const prep = plan.profile.prep;
   const last = m?.items[m.items.length - 1];
@@ -50,7 +54,7 @@ export function FuelPage() {
     try {
       await setEaten({
         variables: { date, slotIndex: it.slotIndex, eaten: !it.eaten },
-        optimisticResponse: { setMealEaten: { ...m!, items: m!.items.map((x) => (x.slotIndex === it.slotIndex ? { ...x, eaten: !it.eaten } : x)) } },
+        optimisticResponse: { setMealEaten: { ...m!, items: m!.items.map((x) => (x.slotIndex === it.slotIndex ? { ...x, eaten: !it.eaten, skipped: false } : x)) } },
         update: (cache, { data }) => { if (data) cache.writeQuery({ query: MEAL_DAY, variables: { date }, data: { mealDay: data.setMealEaten } }); },
       });
     } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that."); }
@@ -67,13 +71,16 @@ export function FuelPage() {
       <div className="agrid">
         <div className="acol">
           <section className="card fadein">
-            <div className="card-h"><div><h3>{isT ? "Today's menu" : `Menu for ${DAYS_LONG[day]}`}</h3><p>Built from your favourites, scaled to {fmt(t.kcal)} kcal</p></div></div>
+            <div className="card-h">
+              <div><h3>{isT ? "Today's menu" : `Menu for ${DAYS_LONG[day]}`}</h3><p>Built from your favourites, scaled to {fmt(t.kcal)} kcal</p></div>
+              {canLog && m && <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Log food</button>}
+            </div>
             {!m && <p className="help">{q.error ? q.error.message : "Loading your menu…"}</p>}
             {m?.items.map((it) => (
-              <div key={it.slotIndex} className={`meal-card${it.eaten ? " eaten" : ""}`}>
+              <div key={it.slotIndex} className={`meal-card${it.eaten ? " eaten" : ""}${it.skipped ? " skipped" : ""}`}>
                 <button type="button" className={`eat${it.eaten ? " on" : ""}`} aria-pressed={it.eaten} aria-label={`Mark ${it.name} as eaten`} onClick={() => void toggle(it)}><Check /></button>
                 <div>
-                  <div className="slot">{SLOT_LABEL[it.slot]}</div>
+                  <div className="slot">{SLOT_LABEL[it.slot]}{it.skipped && <span className="tag">Replaced</span>}</div>
                   <div className="nm">{it.name}</div>
                   <div className="how">{it.portionGuide}{Math.abs(it.portionFactor - 1) > 0.08 ? ` Portions x${it.portionFactor.toFixed(1)}.` : ""}</div>
                 </div>
@@ -91,7 +98,28 @@ export function FuelPage() {
               </div>
             )}
           </section>
-          <div className="empty fadein" style={{ "--d": ".1s" } as CSSProperties}><Info /><span>Ate something off-plan? Logging any food you like arrives in a later release. For now, swap a meal to the closest match.</span></div>
+          {m && canLog && (
+            <section className="card fadein" style={{ "--d": ".1s" } as CSSProperties}>
+              <div className="card-h">
+                <div><h3>Also eaten</h3><p>Anything off the menu: snacks, drinks, eating out</p></div>
+                {foods.length > 0 && <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Add</button>}
+              </div>
+              {foods.map((f) => (
+                <button key={f.id} type="button" className="meal-card food-log" onClick={() => setFood(f)} aria-label={`Edit ${f.name}`}>
+                  <span className="eat on" aria-hidden="true"><Check /></span>
+                  <span>
+                    <span className="slot">{SLOT_LABEL[f.slot]}{f.replacedSlotIndex != null && <span className="tag swap">Instead of the plan</span>}</span>
+                    <span className="nm">{f.name}</span>
+                    <span className="how">{f.portionLabel}{f.quantity !== 1 ? ` × ${f.quantity === 0.5 ? "½" : f.quantity % 1 === 0.5 ? `${Math.floor(f.quantity)}½` : f.quantity}` : ""}</span>
+                  </span>
+                  <span className="side"><span className="kc">{fmt(f.kcal)} kcal, {f.proteinG} g P</span><span className="linkbtn"><PenLine />Edit</span></span>
+                </button>
+              ))}
+              {!foods.length && (
+                <div className="empty"><Utensils /><span>Ate something that isn't on the menu? Log it so your totals stay honest. <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Log food</button></span></div>
+              )}
+            </section>
+          )}
         </div>
         <div className="acol">
           <section className="card fadein" style={{ "--d": ".06s" } as CSSProperties}>
@@ -104,7 +132,13 @@ export function FuelPage() {
                 <Bar label="Fat" v={eF} max={t.fatG} color="var(--coral)" />
               </div>
             </div>
+            {canLog && eK > 0 && (
+              <p className="help" style={{ marginBottom: 0 }}>
+                {left >= 0 ? <><b>{fmt(left)} kcal left</b> {isT ? "today" : "that day"}.</> : <><b>{fmt(-left)} over</b> {isT ? "today" : "that day"}. One day doesn't change the trend.</>}
+              </p>
+            )}
           </section>
+          {m?.water && canLog && <WaterCard date={date} day={m} />}
           <section className="card fadein" style={{ "--d": ".12s" } as CSSProperties}>
             <div className="card-h"><div><h3>Your rules</h3><p>Every meal follows these</p></div></div>
             <div className="list">
@@ -116,10 +150,64 @@ export function FuelPage() {
           </section>
         </div>
       </div>
+      <Sheet open={!!food} onClose={() => setFood(null)} label={food === "new" ? "Log food" : "Edit food"}>
+        {food && m && <FoodSheet date={date} day={m} editing={food === "new" ? null : food} onDone={() => setFood(null)} />}
+      </Sheet>
       <Sheet open={!!swapFor} onClose={() => setSwapFor(null)} label="Swap a meal">
         {swapFor && <SwapSheet date={date} item={swapFor} kcal={t.kcal} onDone={() => setSwapFor(null)} />}
       </Sheet>
     </div>
+  );
+}
+
+/** Optional: tap what you drank. The target is in bottles and sachets, not just ml. */
+function WaterCard({ date, day }: { date: string; day: MealDayDto }) {
+  const toast = useToast();
+  const w = day.water!;
+  const [last, setLast] = useState<number[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [setWater] = useMutation<{ setWater: MealDayDto }>(SET_WATER, {
+    update: (cache, { data }) => { if (data) cache.writeQuery({ query: MEAL_DAY, variables: { date }, data: { mealDay: data.setWater } }); },
+  });
+  const save = async (ml: number) => {
+    const v = Math.max(0, Math.min(10000, Math.round(ml)));
+    try {
+      await setWater({ variables: { date, ml: v }, optimisticResponse: { setWater: { ...day, water: { ...w, ml: v } } } });
+    } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that."); }
+  };
+  const add = (ml: number) => { setLast([...last, ml]); void save(w.ml + ml); };
+  const undo = () => { const ml = last[last.length - 1]; setLast(last.slice(0, -1)); void save(w.ml - ml); };
+  const pct = Math.min(100, (w.ml / w.targetMl) * 100);
+  return (
+    <section className="card fadein" style={{ "--d": ".1s" } as CSSProperties}>
+      <div className="card-h">
+        <div><h3>Water</h3><p>Optional. Aim for {fmt(w.targetMl)} ml: {w.targetText.charAt(0).toLowerCase() + w.targetText.slice(1)}</p></div>
+      </div>
+      <div className="mb">
+        <div className="l"><span>{w.ml >= w.targetMl ? "Target reached" : `${fmt(w.targetMl - w.ml)} ml to go`}</span><b>{fmt(w.ml)} / {fmt(w.targetMl)} ml</b></div>
+        <div className="bar"><i style={{ width: `${pct}%`, background: "var(--water)" }} /></div>
+      </div>
+      <div className="water-presets">
+        {WATER_PRESETS.map((p) => (
+          <button key={p.label} type="button" className="wp" onClick={() => add(p.ml)} aria-label={`Add ${p.label.toLowerCase()}, ${p.ml} ml`}>
+            <Droplet /><span><b>{p.label}</b><i>{p.hint}</i></span><span className="ml">+{p.ml >= 1000 ? `${p.ml / 1000} L` : `${p.ml} ml`}</span>
+          </button>
+        ))}
+      </div>
+      <div className="water-actions">
+        {last.length > 0 && <button type="button" className="linkbtn" onClick={undo}><Minus />Undo last</button>}
+        {editing ? (
+          <form className="water-edit" onSubmit={(e) => { e.preventDefault(); void save(Number(typed) || 0); setEditing(false); setLast([]); }}>
+            <label htmlFor="w-total" className="help">Total for the day (ml)</label>
+            <input id="w-total" className="txt" type="number" inputMode="numeric" min={0} max={10000} value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+            <button type="submit" className="linkbtn"><Check />Save</button>
+          </form>
+        ) : (
+          <button type="button" className="linkbtn" onClick={() => { setTyped(String(w.ml)); setEditing(true); }}><PenLine />Enter a total</button>
+        )}
+      </div>
+    </section>
   );
 }
 
