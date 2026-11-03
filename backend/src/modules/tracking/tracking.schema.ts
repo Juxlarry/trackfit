@@ -154,6 +154,13 @@ export const trackingTypeDefs = /* GraphQL */ `
     effort: Effort
   }
 
+  input ProgressPhotoInput {
+    "Day 1, Week 3 or Week 6."
+    slot: String!
+    "When the file was saved (ISO 8601)."
+    savedAt: String!
+  }
+
   extend type Query {
     weightHistory(limit: Int = 90): [WeightEntry!]!
     exercises(search: String): [Exercise!]!
@@ -171,5 +178,7 @@ export const trackingTypeDefs = /* GraphQL */ `
     logWorkoutSession(input: LogWorkoutSessionInput!): WorkoutSession!
     logActivity(input: LogActivityInput!): ActivityLog!
     deleteActivity(id: ID!): Boolean!
+    "The photo slots that hold a photo right now. Sent whenever Progress loads, so photo reminders skip slots already done."
+    syncProgressPhotos(photos: [ProgressPhotoInput!]!): Boolean!
   }
 `;

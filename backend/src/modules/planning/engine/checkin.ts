@@ -1,6 +1,8 @@
 import { isMainLift } from "./catalog.js";
-import { addDaysIso, buildWeek, computeTargets, dayRange, daysBetween, healthyMinWeightKg, weeklyRateKg } from "./engine.js";
-import type { BuildOptions, Targets, TrainingInput, WeekPlan } from "./types.js";
+import {
+  addDaysIso, buildWeek, computeTargets, dayRange, daysBetween, healthyMinWeightKg, weeklyRateKg, weightChangeText, weightText,
+} from "./engine.js";
+import type { BuildOptions, Targets, TrainingInput, Units, WeekPlan } from "./types.js";
 
 /**
  * The week-6 check-in: what the cycle achieved, three answers, and the rules
@@ -136,10 +138,12 @@ export interface NextCycle {
 }
 
 /** Calorie correction from the pace actually achieved. Returns the change, not the running total. */
-export function kcalCorrection(goal: TrainingInput["goal"], r: CycleResults, eating: EatingAdherence): { delta: number; why: string } {
+export function kcalCorrection(
+  goal: TrainingInput["goal"], r: CycleResults, eating: EatingAdherence, units: Units = "METRIC",
+): { delta: number; why: string } {
   if (r.endKg == null || r.changeKg == null) return { delta: 0, why: "No weigh-ins near the end of the cycle, so calories only follow your new weight." };
   if (r.goalReached) return { delta: 0, why: "You reached your goal on these calories." };
-  const kg = (n: number) => `${n > 0 ? "+" : ""}${n} kg`;
+  const kg = (n: number) => weightChangeText(n, units);
   if (goal === "LOSE_FAT" || goal === "BUILD_MUSCLE") {
     const ratio = r.plannedChangeKg ? r.changeKg / r.plannedChangeKg : 1;
     const slower = goal === "LOSE_FAT" ? -KCAL_STEP : KCAL_STEP;
@@ -151,8 +155,8 @@ export function kcalCorrection(goal: TrainingInput["goal"], r: CycleResults, eat
     }
     return { delta: 0, why: `${pace}: right on track.` };
   }
-  if (r.changeKg > 1) return { delta: -KCAL_STEP, why: `Your weight went up ${r.changeKg} kg, so a little less food to hold it.` };
-  if (r.changeKg < -1) return { delta: KCAL_STEP, why: `Your weight went down ${-r.changeKg} kg, so a little more food to hold it.` };
+  if (r.changeKg > 1) return { delta: -KCAL_STEP, why: `Your weight went up ${weightText(r.changeKg, units)}, so a little less food to hold it.` };
+  if (r.changeKg < -1) return { delta: KCAL_STEP, why: `Your weight went down ${weightText(-r.changeKg, units)}, so a little more food to hold it.` };
   return { delta: 0, why: "Your weight held steady." };
 }
 
@@ -185,22 +189,23 @@ export function planNextCycle(p: {
   sets: LoggedSet[];
   startDate: string;
   today: string;
+  units?: Units;
 }): NextCycle {
-  const { results: r, answers: a } = p;
+  const { results: r, answers: a, units = "METRIC" } = p;
   const changes: CycleChange[] = [];
   const training: TrainingInput = { ...p.training, weightKg: r.endKg ?? p.training.weightKg, daysPerWeek: a.days };
 
   if (r.goalReached && a.goalChoice === "MAINTAIN") {
     training.goal = "RECOMP";
     training.targetWeightKg = null;
-    changes.push({ icon: "trophy", title: `Hold ${training.weightKg} kg, keep getting stronger`, why: "You reached your goal. Now the focus is strength and shape at this weight." });
+    changes.push({ icon: "trophy", title: `Hold ${weightText(training.weightKg, units)}, keep getting stronger`, why: "You reached your goal. Now the focus is strength and shape at this weight." });
   } else if (r.goalReached && a.newTargetKg) {
     training.targetWeightKg = a.newTargetKg;
-    changes.push({ icon: "trophy", title: `New target: ${a.newTargetKg} kg`, why: `You reached ${p.training.targetWeightKg} kg. Same pace, next milestone.` });
+    changes.push({ icon: "trophy", title: `New target: ${weightText(a.newTargetKg, units)}`, why: `You reached ${weightText(p.training.targetWeightKg!, units)}. Same pace, next milestone.` });
   }
 
   const goalChanged = training.goal !== p.training.goal;
-  const corr = goalChanged ? { delta: 0, why: "New goal, new calorie target." } : kcalCorrection(p.training.goal, r, a.eating);
+  const corr = goalChanged ? { delta: 0, why: "New goal, new calorie target." } : kcalCorrection(p.training.goal, r, a.eating, units);
   const kcalOffset = goalChanged ? 0 : Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, p.prevKcalOffset + corr.delta));
   const targets = computeTargets(training, a.days, kcalOffset);
   const kcalWhy = a.eating === "HARD" && corr.delta === 0 && !goalChanged

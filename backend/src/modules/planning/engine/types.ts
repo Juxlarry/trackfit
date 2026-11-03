@@ -8,6 +8,8 @@
  */
 
 export type Sex = "MALE" | "FEMALE";
+/** Display units for weights; everything is stored and computed in kg. */
+export type Units = "METRIC" | "IMPERIAL";
 export type GoalType = "LOSE_FAT" | "BUILD_MUSCLE" | "RECOMP" | "FITNESS" | "MAINTAIN";
 export type Pace = "STEADY" | "MODERATE" | "AMBITIOUS";
 export type Experience = "NEW" | "SOME" | "EXPERIENCED";

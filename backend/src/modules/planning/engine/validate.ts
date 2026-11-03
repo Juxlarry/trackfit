@@ -1,5 +1,5 @@
-import { healthyMinWeightKg } from "./engine.js";
-import type { DietInput, TrainingInput } from "./types.js";
+import { healthyMinWeightKg, weightText } from "./engine.js";
+import type { DietInput, TrainingInput, Units } from "./types.js";
 
 export interface ValidationIssue {
   field: string;
@@ -7,17 +7,19 @@ export interface ValidationIssue {
 }
 
 /** Target-weight rule shown inline during onboarding and enforced again on the server. */
-export function targetWeightIssue(i: Pick<TrainingInput, "goal" | "weightKg" | "heightCm" | "targetWeightKg">): string | null {
+export function targetWeightIssue(
+  i: Pick<TrainingInput, "goal" | "weightKg" | "heightCm" | "targetWeightKg">, units: Units = "METRIC",
+): string | null {
   if (i.goal !== "LOSE_FAT" && i.goal !== "BUILD_MUSCLE") return null;
   if (i.targetWeightKg == null) return "Set a target weight.";
   if (i.goal === "LOSE_FAT") {
     if (i.targetWeightKg >= i.weightKg) return "For fat loss, pick a weight below your current weight.";
     const min = healthyMinWeightKg(i.heightCm);
-    if (i.targetWeightKg < min) return `That's below a healthy range for your height. The lowest we'll plan for is ${min} kg.`;
+    if (i.targetWeightKg < min) return `That's below a healthy range for your height. The lowest we'll plan for is ${weightText(min, units)}.`;
   }
   if (i.goal === "BUILD_MUSCLE") {
     if (i.targetWeightKg <= i.weightKg) return "For muscle gain, pick a weight above your current weight.";
-    if (i.targetWeightKg > i.weightKg * 1.2) return `That's a lot for lean gains. Try ${Math.round(i.weightKg * 1.1)} kg for now and raise it at a check-in.`;
+    if (i.targetWeightKg > i.weightKg * 1.2) return `That's a lot for lean gains. Try ${weightText(Math.round(i.weightKg * 1.1), units)} for now and raise it at a check-in.`;
   }
   return null;
 }

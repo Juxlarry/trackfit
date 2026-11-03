@@ -5,7 +5,7 @@ import {
 import type {
   Adaptation, BuildOptions, DayMenu, DietInput, Effort, GeneratedPlan, HealthScreening, MealPattern, MealSlot,
   MenuItem, Pace, PlannedExercise, PlannedSession, PriorityMuscle, Projection, Recipe, SessionType, Targets,
-  TrainingInput, WeekPlan,
+  TrainingInput, Units, WeekPlan,
 } from "./types.js";
 
 // ── Dates (ISO YYYY-MM-DD, computed in UTC so server and browser agree) ──
@@ -94,6 +94,19 @@ export function computeProjection(i: TrainingInput, startIso: string): Projectio
 /** Lowest target we will plan for: BMI 18.5 at the user's height. */
 export function healthyMinWeightKg(heightCm: number): number {
   return Math.round(18.5 * (heightCm / 100) ** 2 * 10) / 10;
+}
+
+const LB_PER_KG = 2.20462;
+
+/** A body weight as the user reads it: "68.5 kg" or "151 lb" (same rounding as the web's useUnits). */
+export function weightText(kg: number, units: Units = "METRIC"): string {
+  return units === "IMPERIAL" ? `${Math.round(kg * LB_PER_KG)} lb` : `${Math.round(kg * 10) / 10} kg`;
+}
+
+/** A change in weight with its sign: "+1.5 kg", "-3.5 lb". */
+export function weightChangeText(kg: number, units: Units = "METRIC"): string {
+  const n = units === "IMPERIAL" ? Math.round(kg * LB_PER_KG * 2) / 2 : Math.round(kg * 10) / 10;
+  return `${n > 0 ? "+" : ""}${n} ${units === "IMPERIAL" ? "lb" : "kg"}`;
 }
 
 // ── Training ──────────────────────────────────────────────────────────

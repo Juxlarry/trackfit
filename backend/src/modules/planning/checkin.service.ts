@@ -3,7 +3,7 @@ import { eventBus } from "../../shared/events/bus.js";
 import { assertIsoDate, badInput, notFound } from "../../shared/errors.js";
 import {
   CHECKIN_OPENS_DAY, addDaysIso, checkinOpen, cycleResults, dayRange, daysBetween, planNextCycle, sessionOnDate, targetWeightIssue,
-  type CheckinAnswers, type CycleResults, type NextCycle,
+  type CheckinAnswers, type CycleResults, type NextCycle, type Units,
 } from "./engine/index.js";
 import { eatingFromLog, type EatingLog } from "./engine/foods.js";
 import { archiveActiveNutritionPlan, getActiveNutritionPlan, insertNutritionPlan } from "../nutrition/nutrition.repository.js";
@@ -62,7 +62,7 @@ export async function getCheckin(userId: string, today: string): Promise<Checkin
   };
 }
 
-async function next(userId: string, today: string, answers: CheckinAnswers) {
+async function next(userId: string, today: string, answers: CheckinAnswers, units: Units) {
   const ctx = await load(userId, today);
   const { program, intake, nplan, logs, results } = ctx;
   if (!checkinOpen(program.startDate, today)) throw badInput(`Your check-in opens on day ${CHECKIN_OPENS_DAY} of the cycle.`);
@@ -72,27 +72,29 @@ async function next(userId: string, today: string, answers: CheckinAnswers) {
     throw badInput(`Pick ${range.min} to ${range.max} training days.`, [{ field: "days", message: "Out of range." }]);
   }
   if (answers.goalChoice === "NEW_TARGET") {
-    const issue = targetWeightIssue({ ...intake.training, weightKg: results.endKg ?? intake.training.weightKg, targetWeightKg: answers.newTargetKg ?? null });
+    const issue = targetWeightIssue({ ...intake.training, weightKg: results.endKg ?? intake.training.weightKg, targetWeightKg: answers.newTargetKg ?? null }, units);
     if (issue) throw badInput(issue, [{ field: "newTargetKg", message: issue }]);
   }
   const plan = planNextCycle({
     training: intake.training, results, answers, onboardingDays: program.onboardingDays, currentDays: program.daysPerWeek,
     cycleNumber: program.cycleNumber, currentKcal: nplan.dailyKcal, prevKcalOffset: program.kcalOffset,
-    sets: logs.sets, startDate: program.startDate, today,
+    sets: logs.sets, startDate: program.startDate, today, units,
   });
   return { ...ctx, plan };
 }
 
-export async function previewNextCycle(userId: string, today: string, answers: CheckinAnswers): Promise<NextCycle> {
-  return (await next(userId, today, answers)).plan;
+export async function previewNextCycle(userId: string, today: string, answers: CheckinAnswers, units: Units): Promise<NextCycle> {
+  return (await next(userId, today, answers, units)).plan;
 }
 
-export async function completeCheckin(userId: string, today: string, answers: CheckinAnswers, startDate: string): Promise<ActivePlan> {
+export async function completeCheckin(
+  userId: string, today: string, answers: CheckinAnswers, startDate: string, units: Units,
+): Promise<ActivePlan> {
   assertIsoDate(startDate, "startDate");
   if (startDate < addDaysIso(today, -1) || startDate > addDaysIso(today, 14)) {
     throw badInput("Pick a start date between today and 2 weeks from now.", [{ field: "startDate", message: "Out of range." }]);
   }
-  const { program, results, plan } = await next(userId, today, answers);
+  const { program, results, plan } = await next(userId, today, answers, units);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

@@ -6,6 +6,7 @@ import {
   type ActivePlan, type OnboardingSubmission,
 } from "./planning.service.js";
 import { completeCheckin, getCheckin, previewNextCycle } from "./checkin.service.js";
+import { listCycles } from "./planning.repository.js";
 import type { CheckinAnswers } from "./engine/index.js";
 
 /** GraphQL leaves optional fields undefined; keep the stored answers explicit. */
@@ -51,6 +52,7 @@ function presentPlan(p: ActivePlan) {
 
 export const planningResolvers = {
   Query: {
+    myCycles: (_p: unknown, _a: unknown, ctx: GraphQLContext) => listCycles(requireUser(ctx).id),
     previewPlan: (_p: unknown, args: { training: TrainingArg; diet: DietArg; startDate: string }) => {
       const plan = previewPlan(toTraining(args.training), toDiet(args.diet), args.startDate);
       return {
@@ -71,7 +73,8 @@ export const planningResolvers = {
       return (await getActivePlan(userId)) ? getCheckin(userId, args.today) : null;
     },
     previewNextCycle: async (_p: unknown, args: { today: string; answers: CheckinAnswers }, ctx: GraphQLContext) => {
-      const next = await previewNextCycle(requireUser(ctx).id, args.today, toAnswers(args.answers));
+      const user = requireUser(ctx);
+      const next = await previewNextCycle(user.id, args.today, toAnswers(args.answers), user.units);
       return {
         changes: next.changes, targets: next.targets, daysPerWeek: next.days, splitLabel: next.week.splitLabel,
         sessions: next.week.sessions.map((s) => ({ ...s, exercises: s.exercises.map((e) => ({ ...e, startLoadKg: next.loads[e.name] ?? null })) })),
@@ -109,8 +112,10 @@ export const planningResolvers = {
       presentPlan(await swapSessionDays(requireUser(ctx).id, args.dateA, args.dateB)),
     resetWeekSchedule: async (_p: unknown, args: { date: string }, ctx: GraphQLContext) =>
       presentPlan(await resetWeekSchedule(requireUser(ctx).id, args.date)),
-    completeCheckin: async (_p: unknown, args: { today: string; answers: CheckinAnswers; startDate: string }, ctx: GraphQLContext) =>
-      presentPlan(await completeCheckin(requireUser(ctx).id, args.today, toAnswers(args.answers), args.startDate)),
+    completeCheckin: async (_p: unknown, args: { today: string; answers: CheckinAnswers; startDate: string }, ctx: GraphQLContext) => {
+      const user = requireUser(ctx);
+      return presentPlan(await completeCheckin(user.id, args.today, toAnswers(args.answers), args.startDate, user.units));
+    },
     setWorkoutReminder: async (_p: unknown, args: { time?: string | null }, ctx: GraphQLContext) =>
       presentPlan(await setWorkoutReminder(requireUser(ctx).id, args.time ?? null)),
   },

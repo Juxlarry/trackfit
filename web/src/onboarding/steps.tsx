@@ -364,7 +364,7 @@ export const STEPS: Step[] = [
     title: () => <>What weight are you <M>aiming for</M>?</>,
     sub: (d) => d.goal === "LOSE_FAT" ? "Pick a number that feels realistic. We'll plan the first step toward it." : "Lean gains are slow. A few kilos over a cycle is a strong result.",
     body: (c) => {
-      const issue = targetWeightIssue(toTraining(c.d));
+      const issue = targetWeightIssue(toTraining(c.d), c.d.weightUnit === "lb" ? "IMPERIAL" : "METRIC");
       const diff = (c.d.targetWeightKg ?? c.d.weightKg) - c.d.weightKg;
       return (
         <>

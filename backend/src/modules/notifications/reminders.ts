@@ -9,12 +9,14 @@ import { pushPublicKey, sendPushToUser, type PushMessage } from "./push.js";
  * Reminders, sent as push notifications (times are the user's local time):
  *  - TRAINING_DAY at the user's reminder time, on days with a session,
  *    unless they've already logged a workout that day.
- *  - PLAN_START_EVE at 19:00 the evening before their first session.
+ *  - PLAN_START_EVE at 19:00 the evening before the first session of each
+ *    cycle (the first plan, and each cycle a check-in starts).
  *  - WEIGH_IN at 07:30 on days 7, 14, 21, 28 and 35 of the plan, unless they
  *    weighed in during the last 3 days. On days 14 and 35 it also says the
  *    Week 3 / Week 6 photo slot is open, so that morning is one notification.
  *  - PROGRESS_PHOTO at 07:30 on days 14 and 35, only when the weigh-in
- *    reminder is off or not needed.
+ *    reminder is off or not needed. Either one skips the photo when that
+ *    slot already holds a photo from this cycle (tracking.progress_photos).
  *  - MISSED_SESSION at 08:00 the day after a planned session with no workout
  *    logged.
  *  - CHECKIN_READY at 07:30 on days 40, 41 and 42 until the week-6 check-in is
@@ -63,6 +65,7 @@ export const DEFAULT_PREFS: ReminderPrefs = { weighIn: true, progressPhotos: tru
 export interface ReminderPlan {
   reminderTime: string | null;
   prefs: ReminderPrefs;
+  cycleNumber: number;
   startDate: string;
   endDate: string;
   sessions: { weekday: number; name: string }[];
@@ -73,7 +76,7 @@ const sessionOn = (plan: ReminderPlan, iso: string) => sessionOnDate(plan.sessio
 
 export interface DueReminder { kind: ReminderKind; msg: PushMessage }
 
-const NO_FACTS: ReminderFacts = { loggedToday: false, loggedYesterday: false, weighedRecently: false };
+const NO_FACTS: ReminderFacts = { loggedToday: false, loggedYesterday: false, weighedRecently: false, photosThisCycle: [] };
 
 /** Which reminders are due right now. Pure, so it's unit-tested; the job looks up the facts. */
 export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderFacts = NO_FACTS): DueReminder[] {
@@ -99,14 +102,15 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderF
     if (s) {
       due.push({
         kind: "PLAN_START_EVE",
-        msg: { title: "Your plan starts tomorrow", body: `${s.name} on ${DAY_NAMES[weekdayOf(tomorrow)]}. Lay out your kit tonight.`, url: "/today", tag: `start-${tomorrow}` },
+        msg: { title: plan.cycleNumber > 1 ? `Cycle ${plan.cycleNumber} starts tomorrow` : "Your plan starts tomorrow", body: `${s.name} on ${DAY_NAMES[weekdayOf(tomorrow)]}. Lay out your kit tonight.`, url: "/today", tag: `start-${tomorrow}` },
       });
     }
   }
 
   if (inWindow(now.minutes, MORNING_MINUTES)) {
     const weigh = plan.prefs.weighIn && WEIGH_IN_DAYS.includes(day) && !facts.weighedRecently;
-    const photo = plan.prefs.progressPhotos ? PHOTO_DAYS[day] : undefined;
+    const slot = PHOTO_DAYS[day];
+    const photo = plan.prefs.progressPhotos && slot && !facts.photosThisCycle.includes(slot) ? slot : undefined;
     if (weigh) {
       due.push({
         kind: "WEIGH_IN",
@@ -167,7 +171,7 @@ export async function runReminderJob(at = new Date()): Promise<{ sent: number; s
         const now = localNow(at, c.timeZone);
         if (!maybeDue(c, now)) continue;
         const [sessions, swaps, facts] = await Promise.all([
-          listActiveSessions(c.programId), listScheduleSwaps(c.programId), reminderFacts(c.userId, c.timeZone, now.date),
+          listActiveSessions(c.programId), listScheduleSwaps(c.programId), reminderFacts(c.userId, c.timeZone, now.date, c.startDate),
         ]);
         for (const r of dueReminders({ ...c, sessions, swaps }, now, facts)) {
           if (!(await claimReminder(c.userId, r.kind, now.date))) continue;

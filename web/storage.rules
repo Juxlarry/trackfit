@@ -1,15 +1,23 @@
 rules_version = '2';
 
 // Progress photos (web/src/lib/media.ts). Each user can only touch their own
-// three slots, and uploads must match the limits checkMediaFile enforces.
+// slots, and uploads must match the limits checkMediaFile enforces.
+// Cycle 1 lives at progress/{slot}; later cycles at progress/cycle-{n}/{slot}.
 service firebase.storage {
   match /b/{bucket}/o {
-    match /users/{uid}/progress/{slot} {
-      allow read, delete: if request.auth != null && request.auth.uid == uid;
-      allow write: if request.auth != null && request.auth.uid == uid
+    function validUpload(uid, slot) {
+      return request.auth != null && request.auth.uid == uid
         && slot in ['day-1', 'week-3', 'week-6']
         && ((request.resource.contentType.matches('image/.*') && request.resource.size <= 10 * 1024 * 1024)
           || (request.resource.contentType.matches('video/.*') && request.resource.size <= 50 * 1024 * 1024));
+    }
+    match /users/{uid}/progress/{slot} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow write: if validUpload(uid, slot);
+    }
+    match /users/{uid}/progress/{cycle}/{slot} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow write: if cycle.matches('cycle-[0-9]+') && validUpload(uid, slot);
     }
   }
 }

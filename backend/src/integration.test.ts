@@ -242,6 +242,23 @@ test("push reminders: subscribe, send once per day, drop dead devices", async ()
   assert.deepEqual(await runReminderJob(new Date(`${day7}T07:40:00Z`)), { sent: 1 });
   assert.equal(pushed[0].msg.title, "Weigh-in day");
 
+  // Photo slots: the Week 3 line drops once this cycle's Week 3 photo is saved.
+  const SYNC = `mutation($p:[ProgressPhotoInput!]!){ syncProgressPhotos(photos:$p) }`;
+  const day14 = addDaysIso(plan.startDate, 14);
+  const photoAt = (iso: string) => [{ slot: "Day 1", savedAt: `${plan.startDate}T08:00:00Z` }, { slot: "Week 3", savedAt: `${iso}T08:00:00Z` }];
+  assert.equal((await gql(SYNC, { p: [{ slot: "Week 9", savedAt: `${day14}T08:00:00Z` }] }, jay)).errors?.[0].extensions.code, "BAD_USER_INPUT");
+  await ok(SYNC, { p: photoAt(addDaysIso(plan.startDate, -1)) }, jay);
+  pushed.length = 0;
+  await runReminderJob(new Date(`${day14}T07:35:00Z`));
+  assert.equal(pushed[0].msg.title, "Weigh-in day, and your Week 3 photo", "a photo from before this cycle doesn't count");
+  await pool.query(`DELETE FROM notifications.reminder_log WHERE user_id = $1 AND local_date = $2`, [jay, day14]);
+  await ok(SYNC, { p: photoAt(addDaysIso(plan.startDate, 12)) }, jay);
+  pushed.length = 0;
+  await runReminderJob(new Date(`${day14}T07:40:00Z`));
+  assert.equal(pushed[0].msg.title, "Weigh-in day");
+  await ok(SYNC, { p: [] }, jay);
+  assert.equal((await pool.query(`SELECT 1 FROM tracking.progress_photos WHERE user_id = $1`, [jay])).rowCount, 0, "a deleted photo is removed");
+
   gone.add("https://push.example.com/laptop");
   pushed.length = 0;
   const sent = await ok(`mutation{ sendTestPush }`, {}, jay);
@@ -429,6 +446,9 @@ test("week-6 check-in: results, preview, then cycle 2 built from them", async ()
   const next = (await ok(DONE, { t: today, a: { ...answers, keep: [kept] }, s: tomorrow }, kofi)).completeCheckin;
   assert.equal(next.cycleNumber, 2);
   assert.equal(next.startDate, tomorrow);
+  const cycles = (await ok(`{ myCycles { cycleNumber startDate active } }`, {}, kofi)).myCycles;
+  assert.deepEqual(cycles.map((c: any) => [c.cycleNumber, c.active]), [[1, false], [2, true]]);
+  assert.equal(cycles[1].startDate, tomorrow);
   assert.equal(next.daysPerWeek, 3);
   assert.equal(next.onboardingDays, 3, "the ±1 range re-centres on the new day count");
   assert.equal(next.profile.startWeightKg, 78.8);

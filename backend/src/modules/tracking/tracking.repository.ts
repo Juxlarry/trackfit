@@ -326,6 +326,29 @@ export async function listActivityLogs(userId: string, fromIso: string, toIso: s
   return rows.map(mapActivity);
 }
 
+// ── Progress photos (slots only; files are in Firebase Storage) ─────────
+
+export const PHOTO_SLOTS = ["Day 1", "Week 3", "Week 6"] as const;
+export type PhotoSlot = (typeof PHOTO_SLOTS)[number];
+
+/** Replaces the user's slot list with what the app found in Storage. */
+export async function replaceProgressPhotos(userId: string, photos: { slot: PhotoSlot; savedAt: Date }[]) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM tracking.progress_photos WHERE user_id = $1`, [userId]);
+    for (const p of photos) {
+      await client.query(`INSERT INTO tracking.progress_photos (user_id, slot, saved_at) VALUES ($1, $2, $3)`, [userId, p.slot, p.savedAt]);
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function deleteActivityLog(userId: string, id: string): Promise<boolean> {
   const { rowCount } = await pool.query(`DELETE FROM tracking.activity_logs WHERE id = $1 AND user_id = $2`, [id, userId]);
   return (rowCount ?? 0) > 0;

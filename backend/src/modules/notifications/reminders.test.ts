@@ -6,13 +6,14 @@ import { DEFAULT_PREFS, dueReminders, localNow, type ReminderPlan } from "./remi
 const plan: ReminderPlan = {
   reminderTime: "17:30",
   prefs: DEFAULT_PREFS,
+  cycleNumber: 1,
   startDate: "2026-11-02",
   endDate: "2026-12-13",
   sessions: [{ weekday: 0, name: "Upper A" }, { weekday: 2, name: "Lower A" }, { weekday: 4, name: "Upper B" }],
   swaps: [],
 };
 const at = (date: string, hhmm: string) => ({ date, minutes: Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3)) });
-const none = { loggedToday: false, loggedYesterday: false, weighedRecently: false };
+const none = { loggedToday: false, loggedYesterday: false, weighedRecently: false, photosThisCycle: [] as string[] };
 const kinds = (p: ReminderPlan, date: string, hhmm: string, facts = none) => dueReminders(p, at(date, hhmm), facts).map((r) => r.kind);
 
 test("local time follows the user's time zone, not the server's", () => {
@@ -53,6 +54,15 @@ test("evening-before reminder: 19:00 the day before the first session, with or w
   assert.deepEqual(kinds(late, "2026-11-05", "19:00"), [], "only before the first session");
 });
 
+test("evening-before reminder: also before a cycle that a check-in started", () => {
+  // Check-in done on day 41 of cycle 1, cycle 2 starting the Monday after.
+  const cycle2 = { ...plan, cycleNumber: 2, startDate: "2026-12-14", endDate: "2027-01-24" };
+  const eve = dueReminders(cycle2, at("2026-12-13", "19:05"));
+  assert.deepEqual(eve.map((r) => [r.kind, r.msg.title]), [["PLAN_START_EVE", "Cycle 2 starts tomorrow"]]);
+  assert.equal(eve[0].msg.body, "Upper A on Monday. Lay out your kit tonight.");
+  assert.equal(dueReminders(plan, at("2026-11-01", "19:05"))[0].msg.title, "Your plan starts tomorrow");
+});
+
 test("training-day reminder: skipped once today's workout is logged", () => {
   assert.deepEqual(kinds(plan, "2026-11-02", "17:30", { ...none, loggedToday: true }), []);
 });
@@ -77,6 +87,13 @@ test("photo slots: one morning notification with the weigh-in, or alone when the
   assert.deepEqual(alone.map((r) => [r.kind, r.msg.title]), [["PROGRESS_PHOTO", "Your Week 6 photo slot is open"]], "day 35");
   assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, weighIn: false } }, "2026-11-16", "07:30"), ["PROGRESS_PHOTO"]);
   assert.equal(dueReminders({ ...plan, prefs: { ...DEFAULT_PREFS, progressPhotos: false } }, at("2026-11-16", "07:30"), none)[0].msg.title, "Weigh-in day");
+});
+
+test("photo slots: skipped once this cycle's photo for that slot is saved", () => {
+  const taken = { ...none, photosThisCycle: ["Week 3"] };
+  assert.equal(dueReminders(plan, at("2026-11-16", "07:30"), taken)[0].msg.title, "Weigh-in day", "weigh-in without the photo line");
+  assert.deepEqual(kinds(plan, "2026-11-16", "07:30", { ...taken, weighedRecently: true }), [], "nothing left to remind");
+  assert.deepEqual(kinds(plan, "2026-12-07", "07:30", { ...taken, weighedRecently: true }), ["PROGRESS_PHOTO"], "Week 6 still open");
 });
 
 test("missed session: 08:00 the morning after a planned session with nothing logged", () => {

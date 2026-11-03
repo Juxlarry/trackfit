@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDaysIso, buildWeek, checkinOpen, computeTargets, cycleResults, kcalCorrection, nextLoads, planNextCycle } from "./index.js";
+import { addDaysIso, buildWeek, checkinOpen, computeTargets, cycleResults, kcalCorrection, nextLoads, planNextCycle, targetWeightIssue, weightChangeText } from "./index.js";
 import type { CheckinAnswers, CycleInput, CycleResults, LoggedSet, TrainingInput } from "./index.js";
 
 // 81 kg, losing 0.75 %/week → planned −3.6 kg over 6 weeks. 2026-11-02 is a Monday.
@@ -121,6 +121,20 @@ test("next cycle: goal reached → new target or maintain at this weight", () =>
   assert.equal(hold.training.goal, "RECOMP");
   assert.equal(hold.training.targetWeightKg, null);
   assert.equal(hold.kcalOffset, 0, "new goal, fresh calories");
+});
+
+test("next cycle: weights in the change list follow the user's units", () => {
+  const r = res({ goalReached: true, endKg: 71, changeKg: -10 });
+  const next = planNextCycle({ ...base, units: "IMPERIAL", results: r, answers: { ...answers, goalChoice: "NEW_TARGET", newTargetKg: 68 } });
+  assert.equal(next.changes[0].title, "New target: 150 lb");
+  assert.match(next.changes[0].why, /^You reached \d+ lb\./);
+  const hold = planNextCycle({ ...base, units: "IMPERIAL", results: r, answers: { ...answers, goalChoice: "MAINTAIN" } });
+  assert.equal(hold.changes[0].title, "Hold 157 lb, keep getting stronger");
+  assert.equal(kcalCorrection("LOSE_FAT", res({ changeKg: -1 }), "MOST_DAYS", "IMPERIAL").why,
+    `-2 lb against a planned ${weightChangeText(res({}).plannedChangeKg, "IMPERIAL")} while eating to plan most days, so a small cut.`);
+  assert.equal(kcalCorrection("RECOMP", res({ changeKg: 1.4, plannedChangeKg: 0 }), "MOST_DAYS", "IMPERIAL").why, "Your weight went up 3 lb, so a little less food to hold it.");
+  assert.equal(targetWeightIssue({ goal: "LOSE_FAT", weightKg: 60, heightCm: 168, targetWeightKg: 45 }, "IMPERIAL"), "That's below a healthy range for your height. The lowest we'll plan for is 115 lb.");
+  assert.equal(targetWeightIssue({ goal: "LOSE_FAT", weightKg: 60, heightCm: 168, targetWeightKg: 45 }), "That's below a healthy range for your height. The lowest we'll plan for is 52.2 kg.");
 });
 
 test("starting weights: weeks 5-6 heaviest set, +2.5 kg lower / +1.25 kg upper at the top of the range", () => {

@@ -143,6 +143,16 @@ export async function getActiveProgram(userId: string, db: Db = pool): Promise<P
   return rows[0] ? mapProgram(rows[0]) : null;
 }
 
+/** Every cycle the user has had, oldest first. Cycle numbers are unique per user. */
+export async function listCycles(userId: string): Promise<{ cycleNumber: number; startDate: string; endDate: string; active: boolean }[]> {
+  const { rows } = await pool.query(
+    `SELECT cycle_number, to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date, status = 'ACTIVE' AS active
+       FROM tracking.generated_programs WHERE user_id = $1 ORDER BY cycle_number`,
+    [userId],
+  );
+  return rows.map((r) => ({ cycleNumber: r.cycle_number, startDate: r.start_date, endDate: r.end_date, active: r.active }));
+}
+
 export async function archiveActiveProgram(db: Db, userId: string): Promise<number> {
   const { rows } = await db.query(
     `UPDATE tracking.generated_programs SET status = 'ARCHIVED', updated_at = now()

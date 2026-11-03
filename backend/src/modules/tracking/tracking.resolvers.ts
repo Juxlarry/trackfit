@@ -1,6 +1,6 @@
 import type { GraphQLContext } from "../../shared/auth/context.js";
 import { requireUser } from "../../shared/auth/context.js";
-import { assertIsoDate } from "../../shared/errors.js";
+import { assertIsoDate, badInput } from "../../shared/errors.js";
 import {
   createWorkoutTemplate,
   deleteActivityLog,
@@ -12,11 +12,14 @@ import {
   listSetLogsForSession,
   listTemplateExercises,
   listWeightHistory,
+  PHOTO_SLOTS,
+  replaceProgressPhotos,
   listWorkoutHistory,
   listWorkoutTemplates,
   searchExercises,
   type ExerciseRow,
   type MilestoneRow,
+  type PhotoSlot,
   type SetLogRow,
   type WorkoutSessionRow,
   type WorkoutTemplateExerciseRow,
@@ -113,6 +116,15 @@ export const trackingResolvers = {
 
     deleteActivity: (_p: unknown, args: { id: string }, ctx: GraphQLContext) =>
       deleteActivityLog(requireUser(ctx).id, args.id),
+
+    syncProgressPhotos: async (_p: unknown, args: { photos: { slot: string; savedAt: string }[] }, ctx: GraphQLContext) => {
+      const userId = requireUser(ctx).id;
+      const photos = args.photos.map((p) => ({ slot: p.slot as PhotoSlot, savedAt: new Date(p.savedAt) }));
+      if (photos.some((p) => !PHOTO_SLOTS.includes(p.slot) || Number.isNaN(p.savedAt.getTime()))) throw badInput("Unknown photo slot or date.");
+      if (new Set(photos.map((p) => p.slot)).size !== photos.length) throw badInput("Each photo slot can only be sent once.");
+      await replaceProgressPhotos(userId, photos);
+      return true;
+    },
   },
 
   // GraphQL's default String scalar coerces a Date via .valueOf() (epoch ms)

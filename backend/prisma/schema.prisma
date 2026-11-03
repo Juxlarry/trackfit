@@ -51,6 +51,7 @@ model User {
   pushSubscriptions PushSubscription[]
   reminderLog      ReminderLog[]
   reminderPrefs    ReminderPrefs?
+  progressPhotos   ProgressPhoto[]
   nutritionPlans   NutritionPlan[]
   mealEntries      MealEntry[]
   customFoods      CustomFood[]
@@ -554,6 +555,20 @@ model ReminderLog {
 }
 
 /// Switches for the optional reminders. No row means all on.
+/// Progress-photo slots that hold a photo (files are in Firebase Storage).
+model ProgressPhoto {
+  userId  String
+  /// Day 1 | Week 3 | Week 6
+  slot    String
+  savedAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, slot])
+  @@map("progress_photos")
+  @@schema("tracking")
+}
+
 model ReminderPrefs {
   userId         String   @id
   weighIn        Boolean  @default(true)

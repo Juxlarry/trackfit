@@ -23,6 +23,8 @@ export interface PlannedSessionDto {
   exercises: PlannedExerciseDto[];
 }
 
+export interface CycleSpanDto { cycleNumber: number; startDate: string; endDate: string; active: boolean }
+
 export interface ActivePlanDto {
   programId: string;
   cycleNumber: number;

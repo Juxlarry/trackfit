@@ -285,7 +285,17 @@ export const planningTypeDefs = /* GraphQL */ `
     keep: [String!]
   }
 
+  "One 6-week cycle. A check-in can start the next one before endDate."
+  type CycleSpan {
+    cycleNumber: Int!
+    startDate: String!
+    endDate: String!
+    active: Boolean!
+  }
+
   extend type Query {
+    "Every cycle so far, oldest first (photo history on Progress)."
+    myCycles: [CycleSpan!]!
     "The week-6 check-in for the active cycle. today is the caller's local date (YYYY-MM-DD)."
     cycleCheckin(today: String!): CycleCheckin
     "What the next cycle would look like with these answers. Nothing is saved."

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useQuery } from "@apollo/client/react";
+import { useMutation, useQuery } from "@apollo/client/react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Camera, CircleAlert, HeartPulse, Loader, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
+import { ArrowRight, Camera, CircleAlert, Columns2, HeartPulse, Loader, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
 import { addDaysIso, daysBetween, mondayOf } from "@engine";
-import { ACTIVITY_LOGS, LAST_SETS, SESSIONS_BETWEEN, WEIGHT_HISTORY } from "../graphql/operations";
-import type { ActivePlanDto, ActivityDto, SessionSummaryDto } from "../graphql/types";
+import { ACTIVITY_LOGS, LAST_SETS, MY_CYCLES, SESSIONS_BETWEEN, SYNC_PROGRESS_PHOTOS, WEIGHT_HISTORY } from "../graphql/operations";
+import type { ActivePlanDto, ActivityDto, CycleSpanDto, SessionSummaryDto } from "../graphql/types";
+import { Sheet } from "../components/ui/Sheet";
 import { usePlan, useUnits } from "../hooks/usePlan";
 import { useToast } from "../components/ui/Toast";
 import { DAYS, dayShort, localToday } from "../lib/dates";
@@ -56,19 +57,111 @@ function WeightChart({ plan, weights, toDisplay }: { plan: ActivePlanDto; weight
   );
 }
 
-function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
+const SLOT_ORDER = MEDIA_SLOTS.map((s) => s.label);
+const byTime = (a: MediaItem, b: MediaItem) => a.cycle - b.cycle || SLOT_ORDER.indexOf(a.label) - SLOT_ORDER.indexOf(b.label);
+const takenOn = (m: MediaItem) => localDateOf(new Date(m.savedAt).toISOString());
+const photoName = (m: MediaItem) => `Cycle ${m.cycle} · ${m.label}`;
+
+/** The weigh-in closest to a date, within 3 days either side. */
+function weightNear(weights: WeightRow[], iso: string): number | null {
+  let best: { gap: number; kg: number } | null = null;
+  for (const w of weights) {
+    const gap = Math.abs(daysBetween(localDateOf(w.recordedAt), iso));
+    if (gap <= 3 && (!best || gap < best.gap)) best = { gap, kg: w.weightKg };
+  }
+  return best?.kg ?? null;
+}
+
+function MediaView({ m, controls }: { m: MediaItem; controls?: boolean }) {
+  return m.kind === "video"
+    ? <video src={m.src} muted={!controls} controls={controls} playsInline preload="metadata" />
+    : <img src={m.src} alt={`${photoName(m)} photo`} />;
+}
+
+/** Two photos side by side, each with its date and the weigh-in nearest to it. */
+function PhotoPair({ a, b, weights }: { a: MediaItem; b: MediaItem; weights: WeightRow[] }) {
+  const units = useUnits();
+  const [ka, kb] = [weightNear(weights, takenOn(a)), weightNear(weights, takenOn(b))];
+  const days = daysBetween(takenOn(a), takenOn(b));
+  return (
+    <>
+      <div className="ph-pair">
+        {[a, b].map((m, k) => (
+          <figure key={m.path}>
+            <div className="ph filled"><MediaView m={m} controls /></div>
+            <figcaption><b>{k ? "Latest" : "First"}</b>{photoName(m)}<span>{dayShort(takenOn(m))}{(k ? kb : ka) != null && ` · ${units.fmt((k ? kb : ka)!)}`}</span></figcaption>
+          </figure>
+        ))}
+      </div>
+      <p className="help ph-gap">
+        {days > 0 ? `${days} day${days > 1 ? "s" : ""} apart` : "Taken the same day"}
+        {ka != null && kb != null && `, ${kb - ka > 0 ? "+" : kb - ka < 0 ? "-" : ""}${units.fmt(Math.abs(kb - ka))}`}
+      </p>
+    </>
+  );
+}
+
+/** Pick any two photos from any cycle to compare. */
+function CompareSheet({ all, start, weights, onClose }: { all: MediaItem[]; start: [MediaItem, MediaItem] | null; weights: WeightRow[]; onClose: () => void }) {
+  // Keyed by `start` in the parent, so a new comparison starts fresh.
+  const [pick, setPick] = useState<[MediaItem, MediaItem] | null>(start);
+  return (
+    <Sheet open={!!start} onClose={onClose} label="Compare progress photos" wide>
+      {pick && (
+        <>
+          <h3>Compare photos</h3>
+          <PhotoPair a={pick[0]} b={pick[1]} weights={weights} />
+          {([0, 1] as const).map((side) => (
+            <div key={side} className="ph-pick" role="group" aria-label={side ? "Latest photo" : "First photo"}>
+              <span>{side ? "Latest" : "First"}</span>
+              <div>
+                {all.map((m) => (
+                  <button key={m.path} type="button" className={pick[side].path === m.path ? "on" : ""} aria-pressed={pick[side].path === m.path} aria-label={photoName(m)}
+                    onClick={() => setPick((p) => (p ? (side ? [p[0], m] : [m, p[1]]) : p))}>
+                    <MediaView m={m} /><i>C{m.cycle} {m.label.replace("Week ", "W")}</i>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+function Photos({ plan, today, weights }: { plan: ActivePlanDto; today: string; weights: WeightRow[] }) {
   const toast = useToast();
+  const cQ = useQuery<{ myCycles: CycleSpanDto[] }>(MY_CYCLES, { fetchPolicy: "cache-and-network" });
+  const cycles = useMemo(
+    () => cQ.data?.myCycles ?? [{ cycleNumber: plan.cycleNumber, startDate: plan.startDate, endDate: plan.endDate, active: true }],
+    [cQ.data, plan.cycleNumber, plan.startDate, plan.endDate],
+  );
+  const cyclesReady = !!cQ.data || !!cQ.error;
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState<MediaLabel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [slot, setSlot] = useState<MediaLabel>("Day 1");
   const [confirming, setConfirming] = useState<MediaLabel | null>(null);
+  const [comparing, setComparing] = useState<[MediaItem, MediaItem] | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => releaseMedia(media), [media]);
   const loadFailed = () => setError("Couldn't load your photos. Check your connection and reopen Progress.");
-  useEffect(() => { listMedia().then(setMedia, loadFailed).finally(() => setLoading(false)); }, []);
-  const refresh = () => listMedia().then(setMedia, loadFailed);
+  const [sync] = useMutation(SYNC_PROGRESS_PHOTOS);
+  // Each load also tells the API which of this cycle's slots are filled, so photo reminders skip them.
+  const load = () => listMedia(cycles).then((items) => {
+    setMedia(items);
+    const mine = items.filter((m) => m.cycle === plan.cycleNumber);
+    sync({ variables: { photos: mine.map((m) => ({ slot: m.label, savedAt: new Date(m.savedAt).toISOString() })) } }).catch(() => {});
+  }, loadFailed);
+  const cycleKey = cycles.map((c) => `${c.cycleNumber}:${c.startDate}`).join();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (cyclesReady) void load().finally(() => setLoading(false)); }, [cyclesReady, cycleKey]);
+  const refresh = load;
+  const current = media.filter((m) => m.cycle === plan.cycleNumber);
+  const all = [...media].sort(byTime);
+  const past = cycles.filter((c) => c.cycleNumber < plan.cycleNumber && media.some((m) => m.cycle === c.cycleNumber)).reverse();
   const onFile = async (f: File | undefined) => {
     if (input.current) input.current.value = "";
     if (!f) return;
@@ -76,7 +169,7 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
     if ("error" in res) { setError(res.error); return; }
     setError(null);
     setUploading(slot);
-    try { await saveMedia(slot, res.kind, f); } catch (err) { setError(mediaErrorMessage(err)); setUploading(null); return; }
+    try { await saveMedia(plan.cycleNumber, slot, res.kind, f, current.find((m) => m.label === slot)); } catch (err) { setError(mediaErrorMessage(err)); setUploading(null); return; }
     await refresh();
     setUploading(null);
     toast(`${slot} ${res.kind === "video" ? "video" : "photo"} saved.`);
@@ -85,15 +178,16 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
   const remove = async (m: MediaItem) => {
     if (confirming !== m.label) { setConfirming(m.label); return; }
     setConfirming(null);
-    try { await deleteMedia(m.label); } catch (err) { setError(mediaErrorMessage(err)); return; }
+    try { await deleteMedia(m); } catch (err) { setError(mediaErrorMessage(err)); return; }
     await refresh();
     toast(`${m.label} ${m.kind === "video" ? "video" : "photo"} deleted.`);
   };
   return (
     <>
+      {plan.cycleNumber > 1 && <p className="ph-h">Cycle {plan.cycleNumber}</p>}
       <div className="photos">
         {MEDIA_SLOTS.map(({ label, dayOffset }) => {
-          const m = media.find((x) => x.label === label);
+          const m = current.find((x) => x.label === label);
           const unlock = addDaysIso(plan.startDate, dayOffset);
           const open = unlock <= today;
           const pick = () => { if (uploading) return; setSlot(label); input.current?.click(); };
@@ -103,7 +197,7 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
           if (m) {
             return (
               <div key={label} className="ph filled open">
-                {m.kind === "video" ? <video src={m.src} muted playsInline preload="metadata" /> : <img src={m.src} alt={`${label} photo`} />}
+                <MediaView m={m} />
                 <button type="button" className="ph-hit" aria-label={`Replace ${label} ${m.kind}`} onClick={pick} />
                 <span className="lbl">{label}</span>
                 <button type="button" className={`ph-del${confirming === label ? " armed" : ""}`} aria-label={confirming === label ? `Tap again to delete ${label} ${m.kind}` : `Delete ${label} ${m.kind}`}
@@ -122,7 +216,34 @@ function Photos({ plan, today }: { plan: ActivePlanDto; today: string }) {
       </div>
       <input ref={input} type="file" accept="image/*,video/*" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
       {error && <div className="err" role="alert"><CircleAlert /><span>{error}</span></div>}
-      <p className="help" style={{ marginTop: 10 }}>Photos up to 10 MB. Videos up to 30 seconds and 50 MB. {mediaInCloud() ? "Saved to your account, so they show on any device you sign in on." : "Kept on this device (dev mode)."}</p>
+
+      {!loading && all.length >= 2 && (
+        <div className="ph-progress">
+          <p className="ph-h">Your progress so far</p>
+          <PhotoPair a={all[0]} b={all[all.length - 1]} weights={weights} />
+          <button type="button" className="ghost" onClick={() => setComparing([all[0], all[all.length - 1]])}><Columns2 />Compare other photos</button>
+        </div>
+      )}
+
+      {!loading && past.map((c) => (
+        <div key={c.cycleNumber} className="ph-cycle">
+          <p className="ph-h">Cycle {c.cycleNumber}<span>{dayShort(c.startDate)} – {dayShort(c.endDate)}</span></p>
+          <div className="photos">
+            {MEDIA_SLOTS.map(({ label }) => {
+              const m = media.find((x) => x.cycle === c.cycleNumber && x.label === label);
+              return m ? (
+                <button key={label} type="button" className="ph filled open" aria-label={`Compare ${photoName(m)}`}
+                  onClick={() => setComparing([m, all[all.length - 1] === m ? all[0] : all[all.length - 1]])}>
+                  <MediaView m={m} /><span className="lbl">{label}</span>
+                </button>
+              ) : <div key={label} className="ph past"><b>{label}</b>No photo</div>;
+            })}
+          </div>
+        </div>
+      ))}
+
+      <p className="help" style={{ marginTop: 10 }}>Photos up to 10 MB. Videos up to 30 seconds and 50 MB. Every cycle's photos are kept. {mediaInCloud() ? "Saved to your account, so they show on any device you sign in on." : "Kept on this device (dev mode)."}</p>
+      <CompareSheet key={comparing?.map((m) => m.path).join() ?? ""} all={all} start={comparing} weights={weights} onClose={() => setComparing(null)} />
     </>
   );
 }
@@ -186,7 +307,7 @@ export function ProgressPage() {
           </section>
           <section className="card fadein" style={{ "--d": ".08s" } as CSSProperties}>
             <div className="card-h"><div><h3>Progress photos</h3><p>Same spot, same light. Private to you.</p></div></div>
-            <Photos plan={plan} today={today} />
+            <Photos plan={plan} today={today} weights={sorted} />
           </section>
         </div>
         <div className="acol">

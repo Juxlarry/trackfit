@@ -318,6 +318,16 @@ export const LOG_ACTIVITY = gql`
   ${ACTIVITY_FIELDS}
 `;
 
+/** Every cycle so far, oldest first: photo history on Progress. */
+export const MY_CYCLES = gql`
+  query MyCycles { myCycles { cycleNumber startDate endDate active } }
+`;
+
+/** Which photo slots hold a photo, so the API's photo reminders skip slots already done. */
+export const SYNC_PROGRESS_PHOTOS = gql`
+  mutation SyncProgressPhotos($photos: [ProgressPhotoInput!]!) { syncProgressPhotos(photos: $photos) }
+`;
+
 export const SESSIONS_BETWEEN = gql`
   query SessionsBetween($from: String!, $to: String!) {
     workoutSessionsBetween(from: $from, to: $to) { id templateId templateName startedAt durationMinutes setCount volumeKg }

@@ -88,9 +88,9 @@ export function WelcomePage() {
   );
 }
 
-/** The item for one slot; frees the blob URLs of the rest. */
-function pickSlot(all: MediaItem[], label: MediaLabel): MediaItem | null {
-  const m = all.find((x) => x.label === label) ?? null;
+/** The item for one slot of a cycle; frees the blob URLs of the rest. */
+function pickSlot(all: MediaItem[], cycle: number, label: MediaLabel): MediaItem | null {
+  const m = all.find((x) => x.cycle === cycle && x.label === label) ?? null;
   releaseMedia(all.filter((x) => x !== m));
   return m;
 }
@@ -102,9 +102,12 @@ export function MediaUpload({ label, onSaved }: { label: MediaLabel; onSaved?: (
   const [uploading, setUploading] = useState(false);
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
+  const { plan } = usePlan();
+  const cycle = plan?.cycleNumber ?? 1;
+  const spans = useMemo(() => [{ cycleNumber: cycle, startDate: plan?.startDate ?? localToday() }], [cycle, plan?.startDate]);
   useEffect(() => {
-    listMedia().then((all) => setCurrent(pickSlot(all, label)), () => setError("Couldn't load your photo. Check your connection."));
-  }, [label]);
+    listMedia(spans).then((all) => setCurrent(pickSlot(all, cycle, label)), () => setError("Couldn't load your photo. Check your connection."));
+  }, [spans, cycle, label]);
   useEffect(() => () => { if (current) releaseMedia([current]); }, [current]);
   const id = `f-media-${label.replace(/\s/g, "")}`;
   const onFile = async (f: File | undefined) => {
@@ -114,8 +117,8 @@ export function MediaUpload({ label, onSaved }: { label: MediaLabel; onSaved?: (
     setError(null);
     setUploading(true);
     try {
-      await saveMedia(label, res.kind, f);
-      const m = pickSlot(await listMedia(), label);
+      await saveMedia(cycle, label, res.kind, f, current ?? undefined);
+      const m = pickSlot(await listMedia(spans), cycle, label);
       setCurrent(m);
       toast(`${label} ${res.kind === "video" ? "video" : "photo"} saved.`);
       if (m) onSaved?.(m);
@@ -149,7 +152,12 @@ export function MediaUpload({ label, onSaved }: { label: MediaLabel; onSaved?: (
 export function WelcomePhotoPage() {
   const navigate = useNavigate();
   const [saved, setSaved] = useState(false);
-  useEffect(() => { void listMedia().then((all) => { setSaved(all.some((m) => m.label === "Day 1")); releaseMedia(all); }).catch(() => {}); }, []);
+  const { plan } = usePlan();
+  const cycle = plan?.cycleNumber ?? 1;
+  useEffect(() => {
+    const spans = [{ cycleNumber: cycle, startDate: plan?.startDate ?? localToday() }];
+    void listMedia(spans).then((all) => { setSaved(all.some((m) => m.cycle === cycle && m.label === "Day 1")); releaseMedia(all); }).catch(() => {});
+  }, [cycle, plan?.startDate]);
   return (
     <Frame cta={saved ? "Save and go to my plan" : "Skip for now"} onCta={() => navigate("/today", { replace: true })}>
       <h1 className="qh">Capture your <mark>starting point</mark>?</h1>

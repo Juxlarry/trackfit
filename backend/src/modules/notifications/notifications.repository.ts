@@ -63,6 +63,7 @@ export interface ReminderCandidate {
   timeZone: string;
   reminderTime: string | null;
   programId: string;
+  cycleNumber: number;
   startDate: string;
   endDate: string;
   prefs: ReminderPrefsRow;
@@ -71,7 +72,7 @@ export interface ReminderCandidate {
 /** Users who could get a reminder at all: a device to send to, a time zone and an active plan. */
 export async function listReminderCandidates(): Promise<ReminderCandidate[]> {
   const { rows } = await pool.query(
-    `SELECT u.id AS user_id, u.time_zone, i.reminder_time, p.id AS program_id,
+    `SELECT u.id AS user_id, u.time_zone, i.reminder_time, p.id AS program_id, p.cycle_number,
             to_char(p.start_date, 'YYYY-MM-DD') AS start_date, to_char(p.end_date, 'YYYY-MM-DD') AS end_date,
             COALESCE(rp.weigh_in, true) AS weigh_in, COALESCE(rp.progress_photos, true) AS progress_photos,
             COALESCE(rp.missed_session, true) AS missed_session
@@ -84,23 +85,33 @@ export async function listReminderCandidates(): Promise<ReminderCandidate[]> {
   );
   return rows.map((r) => ({
     userId: r.user_id, timeZone: r.time_zone, reminderTime: r.reminder_time,
-    programId: r.program_id, startDate: r.start_date, endDate: r.end_date,
+    programId: r.program_id, cycleNumber: r.cycle_number, startDate: r.start_date, endDate: r.end_date,
     prefs: { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session },
   }));
 }
 
-export interface ReminderFacts { loggedToday: boolean; loggedYesterday: boolean; weighedRecently: boolean }
+export interface ReminderFacts {
+  loggedToday: boolean;
+  loggedYesterday: boolean;
+  weighedRecently: boolean;
+  /** Photo slots ("Week 3", "Week 6") holding a photo saved on or after the plan's start date. */
+  photosThisCycle: string[];
+}
 
-/** What the user already did, by their local calendar: workouts today/yesterday, a weigh-in in the last 3 days. */
-export async function reminderFacts(userId: string, timeZone: string, localDate: string): Promise<ReminderFacts> {
+/**
+ * What the user already did, by their local calendar: workouts today/yesterday,
+ * a weigh-in in the last 3 days, photos taken this cycle.
+ */
+export async function reminderFacts(userId: string, timeZone: string, localDate: string, startDate: string): Promise<ReminderFacts> {
   const { rows } = await pool.query(
     `SELECT
        EXISTS (SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date) AS logged_today,
        EXISTS (SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date - 1) AS logged_yesterday,
-       EXISTS (SELECT 1 FROM tracking.weight_entries WHERE user_id = $1 AND (recorded_at AT TIME ZONE $2)::date BETWEEN $3::date - 2 AND $3::date) AS weighed_recently`,
-    [userId, timeZone, localDate],
+       EXISTS (SELECT 1 FROM tracking.weight_entries WHERE user_id = $1 AND (recorded_at AT TIME ZONE $2)::date BETWEEN $3::date - 2 AND $3::date) AS weighed_recently,
+       ARRAY(SELECT slot FROM tracking.progress_photos WHERE user_id = $1 AND (saved_at AT TIME ZONE $2)::date >= $4::date) AS photos`,
+    [userId, timeZone, localDate, startDate],
   );
-  return { loggedToday: rows[0].logged_today, loggedYesterday: rows[0].logged_yesterday, weighedRecently: rows[0].weighed_recently };
+  return { loggedToday: rows[0].logged_today, loggedYesterday: rows[0].logged_yesterday, weighedRecently: rows[0].weighed_recently, photosThisCycle: rows[0].photos };
 }
 
 /** Records the reminder before sending. False when another run already claimed it. */
