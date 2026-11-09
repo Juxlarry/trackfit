@@ -327,7 +327,7 @@ A person can hold several roles in a club, for example admin and trainer.
 6. **Follow-up:** the client keeps following their generated plan and logging as usual, and can send form checks. The trainer reviews the client page, then sends correction videos and points the client to form demos.
 7. **End:** either side can end it; access stops immediately.
 
-**The plan doesn't change.** The client's plan still progresses only through the week-6 check-in. After cycle 1, a free user gets logging only, so a coached client without Premium would have no plan for their trainer to work from (see [Adaptive plans](#adaptive-plans-the-lead-premium-feature)). Proposed: an active coaching relationship includes Premium. This is open decision A.
+**The plan doesn't change.** The client's plan still progresses only through the week-6 check-in. After cycle 1, a free user gets logging only, so a coached client without Premium would have no plan for their trainer to work from (see [Adaptive plans](#adaptive-plans-the-lead-premium-feature)). So an active coaching relationship includes Premium, and it ends when coaching ends.
 
 ### Data sharing and consent
 
@@ -431,11 +431,11 @@ These need a person, not code, and some take time:
 | Do existing users get their next cycle free? | Yes, one free cycle |
 | How granular is data-sharing consent? | One "agree" for logs and summary; photos and health flags are separate opt-ins, off by default |
 | Who builds and changes plans? | Only the app. Trainers work through videos and can't edit plans |
+| Do coached clients get Premium? | Yes, while the coaching relationship is active, so their trainer always has a plan to work from. Revisit when coaching pricing is specced |
 
 **Open**
 
-- **A. Do coached clients get Premium?** With logging only after cycle 1, a coached client without Premium has no plan for their trainer to work from. Proposed: an active coaching relationship includes Premium, revisited when coaching pricing is specced.
-- **B. Coaching pricing:** monthly price, commission and the "included" option for gym members, once there are users.
+- **Coaching pricing:** monthly price, commission and the "included" option for gym members, once there are users.
 
 ### Sources to re-check
 
@@ -469,7 +469,7 @@ The first 6-week cycle is free. Getting a next cycle built from the person's own
 - **"Logging only" needs a defined state in the app.** Today `RequirePlan` sends anyone without an active plan back to onboarding, which would loop a free user into the quiz and then the paywall. The ended cycle should stay as the user's record so the guard passes, with Today and Train showing "Cycle done", an upgrade card and the free logging tools.
 - **Be upfront.** The plan reveal and welcome email should say the first 6 weeks are free and later adaptive cycles are Premium. The `CHECKIN_READY` reminders in `reminders.ts` promise a next cycle after two minutes, so they need rewording for free users.
 - **Existing users:** anyone already on a cycle at launch gets their next cycle free, to keep faith with what they signed up for.
-- **Coached clients:** whether coaching includes Premium is [open decision A](#decisions).
+- **Coached clients get Premium** while the coaching relationship is active, since trainers can't change a plan. Grant it through the same `features` check, ending when coaching ends.
 
 **Holes to close, enforced on the server**
 
