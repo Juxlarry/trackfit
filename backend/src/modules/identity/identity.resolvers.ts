@@ -53,8 +53,18 @@ export const identityResolvers = {
     // field resolver to come out as ISO-8601 instead of a raw number.
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
     // Only for the caller themselves: nobody learns another user's role from this.
-    appRole: (parent: { id: string }, _args: unknown, context: GraphQLContext) =>
-      context.user?.id === parent.id ? getAppRole(parent.id) : null,
+    // Fail safe: this rides on every `me` query, so a lookup error (say the
+    // Clubs migration hasn't run yet) must not take the home screen down.
+    appRole: async (parent: { id: string }, _args: unknown, context: GraphQLContext) => {
+      if (context.user?.id !== parent.id) return null;
+      try {
+        return await getAppRole(parent.id);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("appRole lookup failed", err);
+        return null;
+      }
+    },
   },
   AppStaff: {
     grantedAt: (parent: AppStaffRow) => parent.grantedAt.toISOString(),

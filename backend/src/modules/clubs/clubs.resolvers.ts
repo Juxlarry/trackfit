@@ -124,11 +124,19 @@ export const clubsResolvers = {
   },
   User: {
     // Only for the caller themselves, like appRole.
+    // Fail safe, like appRole: rides on every `me` query, so an error here
+    // hides the tab (and is logged) instead of breaking the home screen.
     showClubs: async (parent: { id: string }, _a: unknown, ctx: Ctx) => {
       if (!clubsEnabled() || ctx.user?.id !== parent.id) return false;
-      if (await getAppRole(parent.id)) return true;
-      if (await hasOpenMembership(parent.id)) return true;
-      return (await invitesForMe(verifiedEmail(ctx))).length > 0;
+      try {
+        if (await getAppRole(parent.id)) return true;
+        if (await hasOpenMembership(parent.id)) return true;
+        return (await invitesForMe(verifiedEmail(ctx))).length > 0;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("showClubs lookup failed", err);
+        return false;
+      }
     },
   },
   Club: {
