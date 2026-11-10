@@ -14,6 +14,7 @@ import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, dayShort, localToday } from "../
 import { ViewHead } from "./AppLayout";
 import { SLOT_LABEL, weekDates } from "./planUtil";
 import { FoodSheet } from "./FoodSheet";
+import { FuelSetupGate } from "./IntakeSection";
 import { ChallengeProof } from "./clubs/ChallengeProof";
 import { useMyChallenges } from "./clubs/challengeHooks";
 import { PulseLoader } from "../components/ui/PulseLoader";
@@ -28,7 +29,13 @@ function Bar({ label, v, max, color }: { label: string; v: number; max: number; 
   return <div className="mb"><div className="l"><span>{label}</span><b>{v} / {max} g</b></div><div className="bar"><i style={{ width: `${w}%`, background: color }} /></div></div>;
 }
 
+/** Fuel, or for a quick start user who hasn't answered its questions yet, the gate. */
 export function FuelPage() {
+  const plan = usePlan().plan!;
+  return plan.pendingSections.includes("FUEL") ? <FuelSetupGate /> : <FuelDay />;
+}
+
+function FuelDay() {
   const plan = usePlan().plan!;
   const toast = useToast();
   const today = useMemo(() => localToday(), []);
@@ -151,7 +158,7 @@ export function FuelPage() {
           <section className="card fadein" style={{ "--d": ".12s" } as CSSProperties}>
             <div className="card-h"><div><h3>Your rules</h3><p>Every meal follows these</p></div></div>
             <div className="list">
-              <div className="li"><span className="ic"><Utensils /></span><span className="t">{DIET_LABEL[plan.profile.dietPattern] ?? "Custom"}</span><span /></div>
+              <div className="li"><span className="ic"><Utensils /></span><span className="t">{DIET_LABEL[plan.profile.dietPattern ?? "OTHER"] ?? "Custom"}</span><span /></div>
               <div className="li"><span className="ic"><ShieldCheck /></span><span className="t">{allergies.length ? `No ${allergies.map((a) => a.toLowerCase()).join(", ")}` : "No allergies set"}</span><span /></div>
               {plan.profile.fasting === "YES" && <div className="li"><span className="ic"><Clock /></span><span className="t">16:8 eating window</span><span /></div>}
               {prepTxt && <div className="li"><span className="ic"><ChefHat /></span><span><span className="t">Prep tip</span><span className="d" style={{ display: "block" }}>{prepTxt}</span></span><span /></div>}

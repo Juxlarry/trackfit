@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useApolloClient, useMutation, useQuery } from "@apollo/client/react";
 import {
   Activity, ArrowLeftRight, Bell, BellOff, Bike, CalendarDays, CalendarX, Camera, Check, CircleAlert, Dumbbell, Flame, Footprints, HeartPulse, LogOut, Minus, Mountain, Music, Pencil, PersonStanding,
-  Play, Plus, Repeat, Scale, Ship, Smartphone, Target, Trophy, Undo2, Waves, type LucideIcon,
+  Play, Plus, Repeat, Scale, Ship, SlidersHorizontal, Smartphone, Target, Trophy, Undo2, Utensils, Waves, type LucideIcon,
 } from "lucide-react";
 import {
   ACTIVITY_TYPES, CARDIO_LIKE_TO_TYPE, MAX_WEEKLY_SWAPS, ROUTINES, WARMUPS, estimateActivityKcal, swapIssue, weekTypes, weekdayOf, type Effort,
@@ -491,6 +491,14 @@ function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: 
           </span>
         </div>
         <div className="li"><span className="ic"><Bell /></span><span><span className="t">Reminders</span><span className="d" style={{ display: "block" }}>{plan.profile.reminderTime ? `Workouts at ${plan.profile.reminderTime} on training days` : "Workout reminder off"}</span></span><button type="button" className="linkbtn" onClick={onReminder}>Change</button></div>
+        {plan.pendingSections.includes("FUEL") && (
+          <div className="li"><span className="ic"><Utensils /></span><span><span className="t">Fuel</span><span className="d" style={{ display: "block" }}>Not set yet</span></span>
+            <button type="button" className="linkbtn" onClick={() => { onDone(); navigate("/fuel"); }}>Answer</button></div>
+        )}
+        {plan.pendingSections.includes("TRAINING_DETAILS") && (
+          <div className="li"><span className="ic"><SlidersHorizontal /></span><span><span className="t">Training details</span><span className="d" style={{ display: "block" }}>Not set yet: your plan uses sensible defaults</span></span>
+            <button type="button" className="linkbtn" onClick={() => { onDone(); navigate("/fine-tune"); }}>Answer</button></div>
+        )}
         <InstallRow />
       </div>
       <div className="btnrow" style={{ marginTop: 18 }}>

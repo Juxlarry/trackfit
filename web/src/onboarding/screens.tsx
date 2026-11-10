@@ -4,6 +4,7 @@ import {
   ArrowRight, CalendarDays, Check, ChevronDown, Circle, CircleAlert, Mail, Pencil, Play, Sunrise, Zap,
 } from "lucide-react";
 import { MEAL_SLOTS, buildWeek, generatePlan, startSentence } from "@engine";
+import { blockDone } from "./blocks";
 import { useAuth } from "../auth/AuthContext";
 import { InAppBrowserNote } from "../components/ui/InAppBrowserNote";
 import { DEV_AUTH_BYPASS, authErrorMessage, signInWithGoogle, signUpWithEmail } from "../firebase";
@@ -52,7 +53,8 @@ export function BuildLoader({ c }: { c: StepCtx }) {
       const t = window.setTimeout(next, 500);
       return () => window.clearTimeout(t);
     }
-    if (LOADER_QS[step] && pct >= 40 && !asked.current.has(step)) {
+    // Quick start doesn't stop for these: warm-up is in "Fine-tune your training", energy isn't asked.
+    if (LOADER_QS[step] && d.path !== "QUICK" && pct >= 40 && !asked.current.has(step)) {
       asked.current.add(step);
       setQuestion(LOADER_QS[step]);
       return;
@@ -63,7 +65,7 @@ export function BuildLoader({ c }: { c: StepCtx }) {
       if (p >= 100) { setStep(step + 1); setPct(0); } else setPct(p);
     }, step === 0 && pct === 0 ? 500 : 40);
     return () => window.clearTimeout(t);
-  }, [step, pct, question, next]);
+  }, [step, pct, question, next, d.path]);
 
   const answer = (v: string) => {
     if (!question) return;
@@ -205,7 +207,9 @@ export function PlanReveal({ c }: { c: StepCtx }) {
             <div className="macros">
               <div><i className="m-p" />Protein<b>{t.proteinG} g</b></div><div><i className="m-c" />Carbs<b>{t.carbsG} g</b></div><div><i className="m-f" />Fat<b>{t.fatG} g</b></div>
             </div>
-            <div style={{ marginTop: 22 }}>
+            {d.path === "QUICK" && !blockDone("fuel", d) ? (
+              <p className="help" style={{ marginTop: 22 }}>Your meals come next: set up Fuel in the app with a few questions about how you eat, about 2 minutes.</p>
+            ) : <div style={{ marginTop: 22 }}>
               <p style={{ fontWeight: 600, margin: "0 0 4px", fontSize: 14 }}>Sample day <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>portions scaled to your target</span></p>
               {plan.sampleMenu.items.map((m) => (
                 <div className="meal" key={m.slotIndex}><span className="slot">{SLOT_LABEL[m.slot]}</span><span className="nm">{m.name}</span><span className="kc">{fmt(m.kcal)} kcal<br />{m.proteinG} g P</span></div>
@@ -214,7 +218,7 @@ export function PlanReveal({ c }: { c: StepCtx }) {
                 <div className="meal"><span className="slot">Top-up</span><span className="nm">{d.dietPattern === "VEGAN" ? "Soy milk or a plant protein shake" : "Greek yogurt or a protein shake"}</span><span className="kc">+{plan.sampleMenu.proteinShortfallG} g P</span></div>
               )}
               <p className="help" style={{ marginTop: 10 }}>{MEAL_SLOTS[toDiet(d).mealPattern].length} eating times a day. Swap any meal from the Fuel tab.</p>
-            </div>
+            </div>}
           </section>
           <section className="card c-ess fadein" style={{ "--d": ".35s" } as CSSProperties} aria-labelledby="es-h">
             <div className="card-h"><div><h3 id="es-h">What happens next</h3><p>Three quick steps to your first session</p></div></div>

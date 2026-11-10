@@ -10,6 +10,8 @@ import { readJson, removeKey, writeJson } from "../lib/storage";
  * "NONE"-style values mark an explicit "none of these" answer.
  */
 export interface Draft {
+  /** Full quiz, or quick start (README "Quick start onboarding"). */
+  path: "FULL" | "QUICK";
   safety: (keyof HealthScreening | "NONE")[];
   name: string;
   sex: Sex | "";
@@ -71,7 +73,7 @@ export interface Draft {
 }
 
 export const emptyDraft = (): Draft => ({
-  safety: [], name: "", sex: "", age: 30, heightUnit: "cm", heightCm: 170, weightUnit: "kg", weightKg: 75,
+  path: "FULL", safety: [], name: "", sex: "", age: 30, heightUnit: "cm", heightCm: 170, weightUnit: "kg", weightKg: 75,
   bodyFatLevel: null, bodyFatView: "figures", goal: "", targetWeightKg: null, pace: "", motivations: [],
   experience: "", liftComfort: "", equipment: "", availableDays: [], daysPerWeek: 0, sessionMinutes: 0, split: "",
   fullBodyDay: null, priorityMuscles: [], lowPriorityMuscles: [], injuries: [], injuryNote: "", cardioFrequency: "", cardioLikes: [],

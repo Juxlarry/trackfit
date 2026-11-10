@@ -12,6 +12,7 @@ import { useToast } from "../components/ui/Toast";
 import { DAYS, dayOfMonth, localToday } from "../lib/dates";
 import { ViewHead } from "./AppLayout";
 import { ACT_TILES, useSheets } from "./AppSheets";
+import { FineTuneCard } from "./IntakeSection";
 import { cycleWeek, isMoved, sessionOn, sessionsByDate, weekDates } from "./planUtil";
 
 const PROG: [string, string][] = [
@@ -51,6 +52,7 @@ export function TrainPage() {
       <ViewHead kicker={`Cycle ${plan.cycleNumber}, week ${cw} of 6`} title="Train" />
       <div className="agrid">
         <div className="acol">
+          <FineTuneCard />
           <section className="card fadein">
             <div className="card-h">
               <div><h3>This week</h3><p>{plan.splitLabel}, {plan.profile.sessionMinutes} min sessions</p></div>

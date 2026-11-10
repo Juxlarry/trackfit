@@ -1,5 +1,5 @@
 import { pool } from "../../shared/db/pool.js";
-import { badInput, notFound } from "../../shared/errors.js";
+import { badInput, fuelSetupNeeded, notFound } from "../../shared/errors.js";
 import {
   MEAL_SLOTS, addDaysIso, menuFor, sessionOnDate, swapOptions, type DayMenu, type DietInput, type MealSlot, type Recipe,
 } from "../planning/engine/index.js";
@@ -25,7 +25,8 @@ export interface MealDay extends DayMenu {
 
 async function context(userId: string) {
   const [diet, plan, recipes] = await Promise.all([getDietaryProfile(userId), getActiveNutritionPlan(userId), listRecipes()]);
-  if (!diet || !plan) throw notFound("No nutrition plan yet. Finish onboarding first.");
+  if (!plan) throw notFound("No nutrition plan yet. Finish onboarding first.");
+  if (!diet) throw fuelSetupNeeded();
   return { diet, plan, recipes };
 }
 
@@ -242,6 +243,7 @@ export async function getMyFoods(userId: string) {
 
 export async function setWater(userId: string, dateIso: string, ml: number): Promise<MealDay> {
   checkLoggable(dateIso);
+  if (!(await getDietaryProfile(userId))) throw fuelSetupNeeded();
   if (!Number.isInteger(ml) || ml < 0 || ml > 10000) throw badInput("Enter 0 to 10,000 ml.", [{ field: "ml", message: "Out of range." }]);
   await setWaterMl(userId, dateIso, ml);
   return getMealDay(userId, dateIso);
@@ -252,6 +254,8 @@ export async function setWater(userId: string, dateIso: string, ml: number): Pro
  * for the week-6 check-in. Planned meals count at the current plan's portions.
  */
 export async function eatenKcalByDay(userId: string, fromIso: string, toIso: string): Promise<number[]> {
+  // A quick start user who never set up Fuel has no menu to compare with: the check-in skips eating.
+  if (!(await getDietaryProfile(userId))) return [];
   const { diet, plan, recipes } = await context(userId);
   const [entries, foods] = await Promise.all([listMealEntries(userId, fromIso, toIso), foodKcalByDay(userId, fromIso, toIso)]);
   const out: number[] = [];

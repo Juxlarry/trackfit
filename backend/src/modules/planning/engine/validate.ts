@@ -26,6 +26,11 @@ export function targetWeightIssue(
 
 /** Full server-side validation of an onboarding submission. Empty array = valid. */
 export function validateIntake(i: TrainingInput, d: DietInput): ValidationIssue[] {
+  return [...validateTraining(i), ...validateDiet(d)];
+}
+
+/** The training half: everything but food. Quick start checks only this until Fuel is set up. */
+export function validateTraining(i: TrainingInput): ValidationIssue[] {
   const out: ValidationIssue[] = [];
   const bad = (field: string, message: string) => out.push({ field, message });
   if (!(i.age >= 18 && i.age <= 90)) bad("age", "Age must be between 18 and 90.");
@@ -45,6 +50,13 @@ export function validateIntake(i: TrainingInput, d: DietInput): ValidationIssue[
   else if (i.lowPriorityMuscles.includes("CORE")) bad("lowPriorityMuscles", "Abs & core stay in every session.");
   else if (i.lowPriorityMuscles.some((m) => i.priorityMuscles.includes(m))) bad("lowPriorityMuscles", "A muscle can't be both a priority and not a priority.");
   if (!(i.sleepHours >= 3 && i.sleepHours <= 12)) bad("sleepHours", "Sleep must be between 3 and 12 hours.");
+  return out;
+}
+
+/** The food half: Fuel's menu needs these. */
+export function validateDiet(d: DietInput): ValidationIssue[] {
+  const out: ValidationIssue[] = [];
+  const bad = (field: string, message: string) => out.push({ field, message });
   if (d.favouriteDishes.length < 3) bad("favouriteDishes", "Pick at least 3 meals you love.");
   if (d.favouriteDishes.length > 40) bad("favouriteDishes", "Pick up to 40 meals.");
   if (d.favouriteDishes.some((x) => !x.trim() || x.length > 40)) bad("favouriteDishes", "Each meal name must be 1 to 40 characters.");

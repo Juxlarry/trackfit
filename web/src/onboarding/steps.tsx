@@ -28,6 +28,8 @@ export interface StepCtx {
   signedIn: boolean;
   /** Signed in and already has an active plan. */
   hasPlan: boolean;
+  /** Welcome screen: pick the full quiz or quick start, then go on. */
+  choosePath: (path: Draft["path"]) => void;
   /** Where an unfinished quiz on this device left off, if anywhere. */
   resume: { id: string; label: string } | null;
   /** The API couldn't be reached while checking for an existing plan. */
@@ -51,6 +53,13 @@ export interface Step {
   onNext?: (c: StepCtx) => void | Promise<void>;
   hideActions?: boolean;
   wide?: boolean;
+  /**
+   * Untagged steps are the quick path. Tagged ones are skipped on it and,
+   * except mindset and extra, asked later in the app (blocks.ts).
+   */
+  block?: "fuel" | "details" | "mindset" | "extra";
+  /** Only in the in-app "asked later" questions, never in the quiz. */
+  sectionOnly?: boolean;
 }
 
 export const STAGES = ["You", "Goal", "Training", "Lifestyle", "Fuel", "Mindset"];
@@ -223,6 +232,12 @@ export const STEPS: Step[] = [
           <div><b>6 weeks</b><span>per program cycle</span></div>
           <div><b>2 plans</b><span>training and meals, together</span></div>
         </div>
+        {!c.hasPlan && !c.resume && (
+          <div className="quick-pick" style={i(3)}>
+            <span><b>Short on time?</b> Quick start asks 13 questions, about 2 minutes. We'll ask the rest when you need it.</span>
+            <button type="button" className="ghost" onClick={() => c.choosePath("QUICK")}><Zap />Quick start</button>
+          </div>
+        )}
         <div className="returning" style={i(3)}>
           {c.apiDown ? (
             <p>We can't reach TrackFit right now, so we can't check for your plan. Check your connection and refresh.</p>
@@ -849,6 +864,26 @@ export const STEPS: Step[] = [
     valid: (d) => !!d.startChoice && !!d.startDate,
   },
   { id: "signup", stage: -1, hideActions: true, skip: (_d, signedIn) => signedIn },
+  // Asked in the full quiz while the plan builds (screens.tsx); in the app it's a question of its own.
+  {
+    id: "warmup", stage: 2, sectionOnly: true, block: "details",
+    title: () => <>Add a 5-minute <M>warm-up</M> to each session?</>,
+    sub: () => "Takes time from your session length, protects your joints.",
+    body: (c) => (
+      <OptionList options={[{ value: "yes", label: "Yes, include it", icon: Flame }, { value: "no", label: "No, I'll warm up myself", icon: X }]}
+        selected={c.d.warmup === null ? [] : [c.d.warmup ? "yes" : "no"]} onPick={(v) => c.pick({ warmup: v === "yes" })} />
+    ),
+    valid: (d) => d.warmup !== null,
+  },
 ];
+
+const BLOCKS: Record<string, Step["block"]> = {
+  bodyfat: "extra", "i-start": "extra", why: "mindset", "i-proj": "extra",
+  lifts: "details", split: "details", fullbody: "details", priority: "details", "low-priority": "details", cardio: "details", "i-week": "extra",
+  steps: "fuel", sleep: "details", schedule: "fuel",
+  diet: "fuel", allergies: "fuel", local: "fuel", meals: "fuel", fuelcheck: "mindset", nutrihard: "fuel", fasting: "fuel", "i-fuel": "extra",
+  blockers: "mindset", lk1: "mindset", lk2: "mindset", tried: "mindset", motivator: "mindset", support: "mindset",
+};
+for (const s of STEPS) if (BLOCKS[s.id]) s.block = BLOCKS[s.id];
 
 export const STEP_ICONS = { Image, Info };

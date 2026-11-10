@@ -34,6 +34,9 @@ export interface ActivePlanDto {
   daysPerWeek: number;
   dayRange: { min: number; max: number };
   splitLabel: string;
+  onboardingPath: "FULL" | "QUICK";
+  /** Question blocks a quick start user still owes. */
+  pendingSections: ("FUEL" | "TRAINING_DETAILS")[];
   targets: { bmr: number; tdee: number; kcal: number; proteinG: number; carbsG: number; fatG: number };
   projection: { weeks: number; weeklyRateKg: number; endDate: string } | null;
   sessions: PlannedSessionDto[];
@@ -55,10 +58,11 @@ export interface ActivePlanDto {
     priorityMuscles: string[];
     lowPriorityMuscles: string[];
     reminderTime: string | null;
-    dietPattern: DietPattern;
+    /** Null until a quick start user sets up Fuel. */
+    dietPattern: DietPattern | null;
     allergies: Allergen[];
-    mealPattern: MealPattern;
-    fasting: string;
+    mealPattern: MealPattern | null;
+    fasting: string | null;
     prep: string | null;
     favouriteDishes: string[];
   };

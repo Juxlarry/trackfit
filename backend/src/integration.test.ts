@@ -1194,3 +1194,85 @@ test("challenges: the page, comments, the coaches' view, and ending one", async 
   assert.match((await gql(ENTRY, { id: circuitCh, i: { date: today, mediaId: await upload(yaa, feedClub, "PROOF", "image/jpeg", 10), resultReps: 20 } }, yaa)).errors?.[0].message, /has ended/);
   assert.match((await gql(RESPOND, { id: circuitCh, j: true }, kobby)).errors?.[0].message, /is over/);
 });
+
+// ── Quick start onboarding ──────────────────────────────────────────────
+
+const QUICK = `mutation($i:QuickOnboardingInput!){ completeQuickOnboarding(input:$i){ screenedOut plan{ onboardingPath pendingSections splitLabel daysPerWeek
+  targets{kcal proteinG} sessions{ name exercises{ name } } profile{ dietPattern allergies favouriteDishes mealPattern warmup sleepHours priorityMuscles } } } }`;
+const basics = {
+  sex: "FEMALE", age: 27, heightCm: 163, weightKg: 70, goal: "LOSE_FAT", targetWeightKg: 63, pace: "MODERATE",
+  experience: "NEW", equipment: "FULL_GYM", availableDays: [0, 2, 4, 5], daysPerWeek: 3, sessionMinutes: 45, injuries: [],
+};
+const fuelInput = { diet: { pattern: "OMNIVORE", allergies: ["PEANUTS"], favouriteDishes: ["jollof", "waakye", "banku"], mealPattern: "THREE", fasting: "NO", struggles: [] }, activityLevel: "VERY_ACTIVE", trainTime: "EVENING" };
+const details = { liftComfort: "LEARNING", split: "FULL_BODY", fullBodyDay: false, priorityMuscles: ["GLUTES"], lowPriorityMuscles: [], cardioLikes: ["walk"], warmup: false, sleepHours: 8, sleepQuality: "RESTED" };
+let quickUser = "";
+
+test("quick start: the basics are enough for a plan, and the rest is owed", async () => {
+  quickUser = await newUser("Akua");
+  const bad = await gql(QUICK, { i: { screening: screeningClear, basics: { ...basics, age: 15 }, startDate: today } }, quickUser);
+  assert.equal(bad.errors?.[0].extensions.code, "BAD_USER_INPUT");
+  const screened = (await ok(QUICK, { i: { screening: { ...screeningClear, pregnant: true }, basics, startDate: today } }, quickUser)).completeQuickOnboarding;
+  assert.deepEqual([screened.screenedOut, screened.plan], [true, null], "the health check still gates the quick path");
+
+  const r = (await ok(QUICK, { i: { displayName: "Akua", screening: screeningClear, basics, startDate: today } }, quickUser)).completeQuickOnboarding;
+  const p = r.plan;
+  assert.equal(p.onboardingPath, "QUICK");
+  assert.deepEqual(p.pendingSections, ["FUEL", "TRAINING_DETAILS"]);
+  assert.equal(p.daysPerWeek, 3);
+  assert.ok(p.sessions.length === 3 && p.sessions.every((s: any) => s.exercises.length > 0));
+  assert.ok(p.targets.kcal > 1200);
+  assert.deepEqual([p.profile.dietPattern, p.profile.mealPattern, p.profile.allergies, p.profile.favouriteDishes], [null, null, [], []]);
+  assert.deepEqual([p.profile.warmup, p.profile.sleepHours, p.profile.priorityMuscles], [true, 7, []], "defaults until fine-tuned");
+});
+
+test("quick start: Fuel is refused until it's set up, then targets are recalculated", async () => {
+  const code = async (q: string, v: object) => (await gql(q, v, quickUser)).errors?.[0].extensions.code;
+  assert.equal(await code(`query($d:String!){ mealDay(date:$d){ date } }`, { d: today }), "FUEL_SETUP_NEEDED");
+  assert.equal(await code(`mutation($d:String!){ setWater(date:$d, ml:500){ date } }`, { d: today }), "FUEL_SETUP_NEEDED");
+  assert.equal(await code(`mutation($i:LogFoodInput!){ logFood(input:$i){ date } }`, { i: { date: today, slot: "LUNCH", foodKey: "jollof-rice", portionIndex: 0, quantity: 1 } }), "FUEL_SETUP_NEEDED");
+  const check = (await ok(`query($t:String!){ cycleCheckin(today:$t){ open eatingLog{ loggedDays suggested } } }`, { t: today }, quickUser)).cycleCheckin;
+  assert.deepEqual(check.eatingLog, { loggedDays: 0, suggested: null }, "the check-in works without Fuel");
+
+  const before = (await ok(`{ myPlan { targets { kcal } } }`, {}, quickUser)).myPlan.targets.kcal;
+  const SETUP = `mutation($i:FuelSetupInput!){ completeFuelSetup(input:$i){ pendingSections targets{kcal} profile{ dietPattern allergies mealPattern } } }`;
+  assert.match((await gql(SETUP, { i: { ...fuelInput, diet: { ...fuelInput.diet, favouriteDishes: ["jollof"] } } }, quickUser)).errors?.[0].message, /need another look/);
+  const after = (await ok(SETUP, { i: fuelInput }, quickUser)).completeFuelSetup;
+  assert.deepEqual(after.pendingSections, ["TRAINING_DETAILS"]);
+  assert.deepEqual([after.profile.dietPattern, after.profile.allergies, after.profile.mealPattern], ["OMNIVORE", ["PEANUTS"], "THREE"]);
+  assert.ok(after.targets.kcal > before, "very active raises the target from the light default");
+  const day = (await ok(`query($d:String!){ mealDay(date:$d){ items{ slot } } }`, { d: today }, quickUser)).mealDay;
+  assert.equal(day.items.length, 3);
+});
+
+test("quick start: fine-tuning rebuilds the plan and keeps logged history", async () => {
+  const LOG = `mutation($i:LogWorkoutSessionInput!){ logWorkoutSession(input:$i){ id } }`;
+  const ex = (await ok(`{ exercises { id name } }`)).exercises[0].id;
+  await ok(LOG, { i: { durationMinutes: 30, sets: [{ exerciseId: ex, setNumber: 1, reps: 10, weightKg: 20 }] } }, quickUser);
+  const TUNE = `mutation($i:TrainingDetailsInput!){ fineTuneTraining(input:$i){ pendingSections splitLabel sessions{ name } profile{ warmup sleepHours priorityMuscles } } }`;
+  assert.match((await gql(TUNE, { i: { ...details, sleepHours: 2 } }, quickUser)).errors?.[0].message, /need another look/);
+  const p = (await ok(TUNE, { i: details }, quickUser)).fineTuneTraining;
+  assert.deepEqual(p.pendingSections, []);
+  assert.match(p.splitLabel, /full body/i);
+  assert.deepEqual([p.profile.warmup, p.profile.sleepHours, p.profile.priorityMuscles], [false, 8, ["GLUTES"]]);
+  assert.equal((await ok(`{ workoutHistory(limit: 5) { id } }`, {}, quickUser)).workoutHistory.length, 1);
+});
+
+test("quick start: answers given anyway, and answers from before, are never owed again", async () => {
+  const both = await newUser("Kweku");
+  const r = (await ok(QUICK, { i: { screening: screeningClear, basics, details, fuel: fuelInput, startDate: today } }, both)).completeQuickOnboarding;
+  assert.deepEqual(r.plan.pendingSections, []);
+  assert.equal(r.plan.profile.dietPattern, "OMNIVORE");
+
+  // Someone who did the full quiz and redoes it the quick way keeps their earlier answers.
+  const full = await newUser("Esi");
+  await ok(ONBOARD, { i: { displayName: "Esi", screening: screeningClear, training, diet, startDate: today } }, full);
+  const again = (await ok(QUICK, { i: { screening: screeningClear, basics, startDate: tomorrow } }, full)).completeQuickOnboarding.plan;
+  assert.deepEqual(again.pendingSections, []);
+  assert.deepEqual([again.profile.mealPattern, again.profile.sleepHours], ["TWO_PLUS_SNACK", 6.5]);
+  const p = (await ok(`{ myPlan { onboardingPath pendingSections } }`, {}, full)).myPlan;
+  assert.deepEqual(p, { onboardingPath: "QUICK", pendingSections: [] });
+  // The full quiz is always FULL with nothing owed.
+  const f2 = (await ok(ONBOARD, { i: { screening: screeningClear, training, diet, startDate: today } }, quickUser)).completeOnboarding.plan;
+  assert.ok(f2);
+  assert.deepEqual((await ok(`{ myPlan { onboardingPath pendingSections } }`, {}, quickUser)).myPlan, { onboardingPath: "FULL", pendingSections: [] });
+});

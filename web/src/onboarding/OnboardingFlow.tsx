@@ -11,10 +11,13 @@ import { firstName, sampleDraft, toTraining, type Draft } from "./draft";
 import { useOnboarding, useSubmitPlan } from "./OnboardingProvider";
 import { BuildLoader, PlanReveal, SignUp, StartDateBody } from "./screens";
 import { STAGES, STEPS, kgFmt, type Step, type StepCtx } from "./steps";
+import { lastQuestion, onPath, questionsDone } from "./blocks";
 import { PulseLoader } from "../components/ui/PulseLoader";
 
 const reduce = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const indexOf = (id: string) => STEPS.findIndex((s) => s.id === id);
+/** Not asked on this path, or skipped for these answers. */
+const passOver = (s: Step, d: Draft, signedIn: boolean) => !onPath(s, d) || !!s.skip?.(d, signedIn);
 
 const GOAL_LABEL: Record<string, string> = { LOSE_FAT: "Lose fat", BUILD_MUSCLE: "Build muscle", RECOMP: "Recompose", FITNESS: "Get fitter and stronger", MAINTAIN: "Maintain" };
 const EQ_LABEL: Record<string, string> = { FULL_GYM: "full gym", SMALL_GYM: "small gym", HOME_GYM: "home gym", DUMBBELLS: "dumbbells", BANDS: "bands", BODYWEIGHT: "bodyweight" };
@@ -65,7 +68,9 @@ function Rail({ step, d, signedIn }: { step: Step; d: Draft; signedIn: boolean }
   return (
     <div className={`rail${step.stage < 0 ? " hide" : ""}`} aria-hidden="true">
       {STAGES.map((name, s) => {
-        const inStage = STEPS.filter((x) => x.stage === s && !x.skip?.(d, signedIn));
+        const inStage = STEPS.filter((x) => x.stage === s && !passOver(x, d, signedIn));
+        // Quick start has no Lifestyle, Fuel or Mindset questions: those stages leave the rail.
+        if (!inStage.length) return null;
         const pos = inStage.indexOf(step);
         const pct = s < step.stage ? 100 : s > step.stage ? 0 : Math.round(((pos + 1) / inStage.length) * 100);
         return (
@@ -83,10 +88,10 @@ function Rail({ step, d, signedIn }: { step: Step; d: Draft; signedIn: boolean }
 function resumePoint(d: Draft, signedIn: boolean): { id: string; label: string } | null {
   if (!d.safety.length) return null;
   for (const s of STEPS) {
-    if (s.stage < 0 || s.skip?.(d, signedIn)) continue;
+    if (s.stage < 0 || passOver(s, d, signedIn)) continue;
     if (s.valid && !s.valid(d)) return { id: s.id, label: STAGES[s.stage] };
   }
-  return d.support ? { id: "plan", label: "your plan" } : null;
+  return questionsDone(d) ? { id: "plan", label: "your plan" } : null;
 }
 
 /**
@@ -123,7 +128,7 @@ export function OnboardingFlow() {
   const nextId = useCallback((from: number) => {
     const dd = latest();
     let k = from + 1;
-    while (k < STEPS.length && STEPS[k].skip?.(dd, signedIn)) k++;
+    while (k < STEPS.length && passOver(STEPS[k], dd, signedIn)) k++;
     return STEPS[Math.min(k, STEPS.length - 1)].id;
   }, [latest, signedIn]);
 
@@ -142,6 +147,8 @@ export function OnboardingFlow() {
       return;
     }
     if (step.onNext) { await step.onNext(ctx); return; }
+    // The big button on the welcome screen is the full quiz; quick start has its own.
+    if (step.id === "welcome" && !resume) set({ path: "FULL" });
     goTo(nextId(idx), 1);
     // ctx is rebuilt every render; reading it here is intentional
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,8 +157,8 @@ export function OnboardingFlow() {
   const back = () => {
     const dd = latest();
     let k = idx - 1;
-    while (k > 0 && STEPS[k].skip?.(dd, signedIn)) k--;
-    if (STEPS[k]?.id === "screened" || STEPS[k]?.id === "build") k = Math.max(0, indexOf(STEPS[k].id === "build" ? "support" : "safety"));
+    while (k > 0 && passOver(STEPS[k], dd, signedIn)) k--;
+    if (STEPS[k]?.id === "screened" || STEPS[k]?.id === "build") k = Math.max(0, indexOf(STEPS[k].id === "build" ? lastQuestion(dd) : "safety"));
     if (k >= 0) goTo(STEPS[k].id, -1);
   };
 
@@ -164,8 +171,23 @@ export function OnboardingFlow() {
   };
 
   const resume = useMemo(() => resumePoint(d, signedIn), [d, signedIn]);
+  const choosePath = (path: Draft["path"]) => { set({ path }); goTo(nextId(idx), 1); };
+  /** Mid-quiz switch. Answers stay; to quick start skips ahead, to the full quiz goes back to the first question it still needs. */
+  const switchPath = () => {
+    if (d.path === "QUICK") {
+      const dd = { ...latest(), path: "FULL" as const };
+      set({ path: "FULL" });
+      const first = STEPS.find((s) => s.stage >= 0 && !passOver(s, dd, signedIn) && s.valid && !s.valid(dd));
+      if (first && indexOf(first.id) < idx) goTo(first.id, -1);
+      toast("Full quiz: a few more questions for the most personal plan.");
+    } else {
+      set({ path: "QUICK" });
+      if (step.block) goTo(nextId(idx), 1);
+      toast("Quick start: we'll ask the rest when you need it.");
+    }
+  };
   const ctx: StepCtx = {
-    d, set, pick, next: () => void next(), go: (id) => goTo(id, id === resume?.id ? 1 : -1), signedIn, hasPlan: signedIn && !!plan,
+    d, set, pick, choosePath, next: () => void next(), go: (id) => goTo(id, id === resume?.id ? 1 : -1), signedIn, hasPlan: signedIn && !!plan,
     resume, apiDown: signedIn && !!planError, today,
   };
 
@@ -187,7 +209,7 @@ export function OnboardingFlow() {
   if (step.id === "welcome" && (!authReady || (signedIn && planLoading))) return <PulseLoader full />;
   if (step.id === "welcome" && signedIn && plan && !params.has("redo")) return <Navigate to="/today" replace />;
   // Deep links past the questions need a finished draft.
-  if (["build", "plan", "start", "signup"].includes(step.id) && !d.support) return <Navigate to="/start/welcome" replace />;
+  if (["build", "plan", "start", "signup"].includes(step.id) && !questionsDone(d)) return <Navigate to="/start/welcome" replace />;
 
   const valid = step.valid ? step.valid(d) : true;
   const cta = typeof step.cta === "function" ? step.cta(d) : step.cta ?? "Continue";
@@ -228,6 +250,9 @@ export function OnboardingFlow() {
             {busy ? <><span className="spin" aria-hidden="true" />Saving your plan</> : <><span>{step.id === "start" && signedIn ? "Save my plan" : cta}</span><ArrowRight /></>}
           </button>
           <span className="hint">or press <kbd>Enter</kbd></span>
+          {step.stage >= 0 && step.id !== "screened" && (
+            <button type="button" className="linkbtn path-switch" onClick={switchPath}>{d.path === "QUICK" ? "Answer everything instead" : "Finish faster"}</button>
+          )}
           {DEV_AUTH_BYPASS && step.id === "welcome" && (
             <button type="button" className="linkbtn" style={{ marginLeft: "auto" }}
               onClick={() => { replace({ ...sampleDraft(today), startChoice: "", startDate: "" }); goTo("build", 1); }}>

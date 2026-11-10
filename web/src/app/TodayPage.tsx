@@ -38,7 +38,7 @@ export function ActivityRow({ a }: { a: ActivityDto }) {
 
 function tipFor(plan: ActivePlanDto): [string, string] {
   if (plan.profile.sleepHours < 7) return ["Protect your sleep this week", `You sleep about ${plan.profile.sleepHours} hours. Getting closer to 7 helps recovery more than any supplement, and it keeps hunger in check.`];
-  const m = MEAL_SLOTS[plan.profile.mealPattern].length;
+  const m = plan.profile.mealPattern ? MEAL_SLOTS[plan.profile.mealPattern].length : 3;
   return ["Spread your protein", `Aim for about ${Math.round(plan.targets.proteinG / m)} g of protein in each of your ${m} eating times to reach ${plan.targets.proteinG} g without forcing it.`];
 }
 
@@ -52,7 +52,8 @@ export function TodayPage() {
   const week = weekDates(today);
   const sessQ = useQuery<{ workoutSessionsBetween: SessionSummaryDto[] }>(SESSIONS_BETWEEN, { variables: { from: week[0], to: week[6] }, fetchPolicy: "cache-and-network" });
   const actQ = useQuery<{ activityLogs: ActivityDto[] }>(ACTIVITY_LOGS, { variables: { from: today, to: today }, fetchPolicy: "cache-and-network" });
-  const mealQ = useQuery<{ mealDay: MealDayDto }>(MEAL_DAY, { variables: { date: today } });
+  const needsFuel = plan.pendingSections.includes("FUEL");
+  const mealQ = useQuery<{ mealDay: MealDayDto }>(MEAL_DAY, { variables: { date: today }, skip: needsFuel });
   const wQ = useQuery<{ weightHistory: { recordedAt: string }[] }>(WEIGHT_HISTORY, { variables: { limit: 30 }, fetchPolicy: "cache-and-network" });
   const done = sessionsByDate(sessQ.data?.workoutSessionsBetween);
   const flags = readFlags(plan.programId);
@@ -210,7 +211,13 @@ export function TodayPage() {
               </div>
             </section>
           )}
-          <section className="card fadein" style={{ "--d": ".16s" } as CSSProperties}>
+          {needsFuel ? (
+            <section className="card fadein" style={{ "--d": ".16s" } as CSSProperties}>
+              <div className="card-h"><div><h3>Fuel today</h3><p>Aim for {plan.targets.kcal.toLocaleString("en-GB")} kcal and {plan.targets.proteinG} g protein</p></div></div>
+              <p className="help" style={{ marginTop: 0 }}>Set up Fuel to get a daily menu built from food you like, sized to your target. About 2 minutes.</p>
+              <Link className="cta small-cta" to="/fuel">Set up Fuel<ArrowRight /></Link>
+            </section>
+          ) : <section className="card fadein" style={{ "--d": ".16s" } as CSSProperties}>
             <div className="card-h">
               <div><h3>Fuel today</h3><p>{menu ? (nextMeal ? `Next: ${SLOT_LABEL[nextMeal.slot]}, ${nextMeal.name.toLowerCase()}` : "All planned meals eaten") : "Loading your menu"}</p></div>
               <Link className="linkbtn" to="/fuel">Open<ArrowRight /></Link>
@@ -221,7 +228,7 @@ export function TodayPage() {
                 {(menu?.items ?? []).map((m) => <div className="mb" key={m.slotIndex}><div className="l"><span>{SLOT_LABEL[m.slot]}</span><b>{m.eaten ? "Eaten" : m.kcal.toLocaleString("en-GB")}</b></div></div>)}
               </div>
             </div>
-          </section>
+          </section>}
           <div className="tip fadein" style={{ "--d": ".2s" } as CSSProperties}>
             <span className="ic"><Lightbulb /></span><div><b>{tip[0]}</b><p>{tip[1]}</p></div>
           </div>

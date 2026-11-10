@@ -1,8 +1,8 @@
 import type { GraphQLContext } from "../../shared/auth/context.js";
 import { requireUser } from "../../shared/auth/context.js";
-import type { DietInput, TrainingInput } from "./engine/index.js";
+import type { DietInput, TrainingBasics, TrainingDetails, TrainingInput } from "./engine/index.js";
 import {
-  completeOnboarding, getActivePlan, previewPlan, resetWeekSchedule, setStartDate, setTrainingDays, setWorkoutReminder, swapSessionDays,
+  completeFuelSetup, completeOnboarding, completeQuickOnboarding, fineTuneTraining, getActivePlan, previewPlan, resetWeekSchedule, setStartDate, setTrainingDays, setWorkoutReminder, swapSessionDays,
   type ActivePlan, type OnboardingSubmission,
 } from "./planning.service.js";
 import { completeCheckin, getCheckin, previewNextCycle } from "./checkin.service.js";
@@ -43,12 +43,37 @@ function presentPlan(p: ActivePlan) {
       goal: p.profile.goal, targetWeightKg: p.profile.targetWeightKg, startWeightKg: p.profile.weightKg, heightCm: p.profile.heightCm,
       sessionMinutes: p.profile.sessionMinutes, sleepHours: p.profile.sleepHours, equipment: p.profile.equipment,
       experience: p.profile.experience, warmup: p.profile.warmup, cardioLikes: p.profile.cardioLikes,
-      priorityMuscles: p.profile.priorityMuscles, lowPriorityMuscles: p.profile.lowPriorityMuscles, reminderTime: p.profile.reminderTime, dietPattern: p.profile.diet.pattern,
-      allergies: p.profile.diet.allergies, mealPattern: p.profile.diet.mealPattern, fasting: p.profile.diet.fasting,
-      prep: p.profile.diet.prep, favouriteDishes: p.profile.diet.favouriteDishes,
+      priorityMuscles: p.profile.priorityMuscles, lowPriorityMuscles: p.profile.lowPriorityMuscles, reminderTime: p.profile.reminderTime,
+      dietPattern: p.profile.diet?.pattern ?? null, allergies: p.profile.diet?.allergies ?? [], mealPattern: p.profile.diet?.mealPattern ?? null,
+      fasting: p.profile.diet?.fasting ?? null, prep: p.profile.diet?.prep ?? null, favouriteDishes: p.profile.diet?.favouriteDishes ?? [],
     },
   };
 }
+
+type BasicsArg = Omit<TrainingBasics, "bodyFatLevel" | "targetWeightKg" | "pace"> & {
+  bodyFatLevel?: number | null; targetWeightKg?: number | null; pace?: TrainingBasics["pace"]; injuryNote?: string | null; motivations?: string[] | null;
+};
+type DetailsArg = Omit<TrainingDetails, "lowPriorityMuscles" | "sleepQuality"> & {
+  lowPriorityMuscles?: TrainingDetails["lowPriorityMuscles"] | null; sleepQuality?: TrainingDetails["sleepQuality"]; cardioFrequency?: string | null;
+};
+type FuelArg = { diet: DietArg; activityLevel: TrainingInput["activityLevel"]; trainTime?: TrainingInput["trainTime"]; busyness?: TrainingInput["busyness"] };
+
+const toBasics = (b: BasicsArg): TrainingBasics => ({
+  sex: b.sex, age: b.age, heightCm: b.heightCm, weightKg: b.weightKg, bodyFatLevel: b.bodyFatLevel ?? null, goal: b.goal,
+  targetWeightKg: b.targetWeightKg ?? null, pace: b.pace ?? null, experience: b.experience, equipment: b.equipment,
+  availableDays: [...new Set(b.availableDays)].sort(), daysPerWeek: b.daysPerWeek,
+  sessionMinutes: b.sessionMinutes as TrainingBasics["sessionMinutes"], injuries: b.injuries,
+});
+const toDetails = (d: DetailsArg): TrainingDetails => ({
+  liftComfort: d.liftComfort, split: d.split, fullBodyDay: d.fullBodyDay, priorityMuscles: d.priorityMuscles,
+  lowPriorityMuscles: [...new Set(d.lowPriorityMuscles ?? [])], cardioLikes: d.cardioLikes, warmup: d.warmup,
+  sleepHours: d.sleepHours, sleepQuality: d.sleepQuality ?? null,
+});
+const toFuel = (f: FuelArg) => ({
+  diet: toDiet(f.diet),
+  dietExtras: { calorieAwareness: f.diet.calorieAwareness ?? null, proteinAwareness: f.diet.proteinAwareness ?? null },
+  lifestyle: { activityLevel: f.activityLevel, trainTime: f.trainTime ?? null, busyness: f.busyness ?? null },
+});
 
 export const planningResolvers = {
   Query: {
@@ -72,9 +97,9 @@ export const planningResolvers = {
       const userId = requireUser(ctx).id;
       return (await getActivePlan(userId)) ? getCheckin(userId, args.today) : null;
     },
-    previewNextCycle: async (_p: unknown, args: { today: string; answers: CheckinAnswers }, ctx: GraphQLContext) => {
+    previewNextCycle: async (_p: unknown, args: { today: string; answers: CheckinAnswers; details?: DetailsArg | null }, ctx: GraphQLContext) => {
       const user = requireUser(ctx);
-      const next = await previewNextCycle(user.id, args.today, toAnswers(args.answers), user.units);
+      const next = await previewNextCycle(user.id, args.today, toAnswers(args.answers), user.units, args.details ? toDetails(args.details) : null);
       return {
         changes: next.changes, targets: next.targets, daysPerWeek: next.days, splitLabel: next.week.splitLabel,
         sessions: next.week.sessions.map((s) => ({ ...s, exercises: s.exercises.map((e) => ({ ...e, startLoadKg: next.loads[e.name] ?? null })) })),
@@ -104,6 +129,32 @@ export const planningResolvers = {
       }, ctx.auth ?? null);
       return { ...result, plan: result.plan ? presentPlan(result.plan) : null };
     },
+    completeQuickOnboarding: async (
+      _p: unknown,
+      args: { input: { displayName?: string | null; email?: string | null; screening: OnboardingSubmission["screening"]; basics: BasicsArg; details?: DetailsArg | null; fuel?: FuelArg | null; mindset?: Record<string, unknown> | null; startDate: string } },
+      ctx: GraphQLContext,
+    ) => {
+      const user = requireUser(ctx);
+      const i = args.input;
+      const result = await completeQuickOnboarding(user, {
+        displayName: i.displayName?.trim() || null,
+        email: i.email?.trim() || null,
+        screening: i.screening,
+        basics: toBasics(i.basics),
+        details: i.details ? toDetails(i.details) : null,
+        fuel: i.fuel ? toFuel(i.fuel) : null,
+        trainingExtras: {
+          motivations: i.basics.motivations ?? [], injuryNote: i.basics.injuryNote ?? null,
+          cardioFrequency: i.details?.cardioFrequency ?? null, energy: null, mindset: i.mindset ?? {},
+        },
+        startDate: i.startDate,
+      }, ctx.auth ?? null);
+      return { ...result, plan: result.plan ? presentPlan(result.plan) : null };
+    },
+    completeFuelSetup: async (_p: unknown, args: { input: FuelArg }, ctx: GraphQLContext) =>
+      presentPlan(await completeFuelSetup(requireUser(ctx).id, toFuel(args.input))),
+    fineTuneTraining: async (_p: unknown, args: { input: DetailsArg }, ctx: GraphQLContext) =>
+      presentPlan(await fineTuneTraining(requireUser(ctx).id, toDetails(args.input))),
     setTrainingDays: async (_p: unknown, args: { days: number }, ctx: GraphQLContext) =>
       presentPlan(await setTrainingDays(requireUser(ctx).id, args.days)),
     setStartDate: async (_p: unknown, args: { date: string }, ctx: GraphQLContext) =>
@@ -112,9 +163,9 @@ export const planningResolvers = {
       presentPlan(await swapSessionDays(requireUser(ctx).id, args.dateA, args.dateB)),
     resetWeekSchedule: async (_p: unknown, args: { date: string }, ctx: GraphQLContext) =>
       presentPlan(await resetWeekSchedule(requireUser(ctx).id, args.date)),
-    completeCheckin: async (_p: unknown, args: { today: string; answers: CheckinAnswers; startDate: string }, ctx: GraphQLContext) => {
+    completeCheckin: async (_p: unknown, args: { today: string; answers: CheckinAnswers; startDate: string; details?: DetailsArg | null }, ctx: GraphQLContext) => {
       const user = requireUser(ctx);
-      return presentPlan(await completeCheckin(user.id, args.today, toAnswers(args.answers), args.startDate, user.units));
+      return presentPlan(await completeCheckin(user.id, args.today, toAnswers(args.answers), args.startDate, user.units, args.details ? toDetails(args.details) : null));
     },
     setWorkoutReminder: async (_p: unknown, args: { time?: string | null }, ctx: GraphQLContext) =>
       presentPlan(await setWorkoutReminder(requireUser(ctx).id, args.time ?? null)),
