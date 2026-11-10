@@ -15,7 +15,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["identity", "tracking", "nutrition", "notifications"]
+  schemas  = ["identity", "tracking", "nutrition", "notifications", "clubs"]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -61,6 +61,8 @@ model User {
   workoutTemplates WorkoutTemplate[]
   workoutSessions  WorkoutSession[]
   customExercises  Exercise[]
+  appRole          AppRole?        @relation("AppRoleOf")
+  clubMemberships  ClubMembership[]
 
   @@schema("identity")
   @@map("users")
@@ -598,4 +600,114 @@ model CycleCheckin {
   @@index([userId])
   @@map("cycle_checkins")
   @@schema("tracking")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Clubs v1, first build step (sql/010_clubs.sql, README "Clubs v1")
+// ─────────────────────────────────────────────────────────────────────────
+
+/// App Owner (exactly one) and App Admins. Never grants a club role.
+model AppRole {
+  userId    String   @id
+  role      String   // OWNER | ADMIN; one OWNER (partial unique index in SQL)
+  grantedBy String?
+  grantedAt DateTime @default(now())
+
+  user User @relation("AppRoleOf", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("identity")
+  @@map("app_roles")
+}
+
+model Club {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  timeZone    String    @default("Africa/Accra")
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  closedAt    DateTime?
+
+  memberships ClubMembership[]
+  invites     ClubInvite[]
+  joinLinks   ClubJoinLink[]
+  events      ClubMembershipEvent[]
+
+  @@schema("clubs")
+  @@map("clubs")
+}
+
+/// Admin and Coach are flags on an ACTIVE membership. Rows stay after leaving.
+model ClubMembership {
+  clubId      String
+  userId      String
+  status      String    // WAITING | ACTIVE | DECLINED | LEFT | REMOVED
+  isAdmin     Boolean   @default(false)
+  isCoach     Boolean   @default(false)
+  /// Accepted that coaches see the workouts and activities they log.
+  consentedAt DateTime
+  requestedAt DateTime  @default(now())
+  joinedAt    DateTime?
+  updatedAt   DateTime  @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([clubId, userId])
+  @@schema("clubs")
+  @@map("memberships")
+}
+
+/// Email invite; claimed only by that address, verified.
+model ClubInvite {
+  id         String    @id @default(uuid())
+  clubId     String
+  email      String
+  token      String    @unique
+  asAdmin    Boolean   @default(false)
+  invitedBy  String?
+  createdAt  DateTime  @default(now())
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@schema("clubs")
+  @@map("invites")
+}
+
+/// Shareable link: whoever opens it asks to join, and an Admin approves.
+model ClubJoinLink {
+  id        String    @id @default(uuid())
+  clubId    String
+  token     String    @unique
+  createdBy String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  maxUses   Int
+  uses      Int       @default(0)
+  revokedAt DateTime?
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@schema("clubs")
+  @@map("join_links")
+}
+
+/// Joins, approvals, role changes and exits; also the consent record.
+model ClubMembershipEvent {
+  id      String   @id @default(uuid())
+  clubId  String
+  userId  String?
+  actorId String?
+  event   String
+  detail  String?
+  at      DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, at])
+  @@schema("clubs")
+  @@map("membership_events")
 }

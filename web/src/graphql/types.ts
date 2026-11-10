@@ -69,6 +69,10 @@ export interface MeDto {
   displayName: string;
   email: string | null;
   units: "METRIC" | "IMPERIAL";
+  /** OWNER or ADMIN for the console. */
+  appRole: AppRole | null;
+  /** Whether Clubs appears in the menu. */
+  showClubs: boolean;
 }
 
 export interface MyPlanData {
@@ -190,4 +194,65 @@ export interface CyclePreviewDto {
   targets: { kcal: number; proteinG: number; carbsG: number; fatG: number };
   changes: { icon: string; title: string; why: string }[];
   sessions: { weekday: number; name: string; exercises: { name: string; sets: number; reps: string; rotatedFrom: string | null; startLoadKg: number | null }[] }[];
+}
+
+// ── Clubs ───────────────────────────────────────────────────────────────
+
+export type AppRole = "OWNER" | "ADMIN";
+export type ClubMemberStatus = "WAITING" | "ACTIVE" | "DECLINED" | "LEFT" | "REMOVED";
+
+export interface ClubMemberDto {
+  userId: string;
+  displayName: string;
+  isAdmin: boolean;
+  isCoach: boolean;
+  isMe: boolean;
+  joinedAt: string | null;
+}
+
+export interface ClubDto {
+  id: string;
+  name: string;
+  description: string | null;
+  me: { userId: string; isAdmin: boolean; isCoach: boolean };
+  members: ClubMemberDto[];
+  joinRequests: { userId: string; displayName: string; requestedAt: string }[];
+  invites: { id: string; email: string; asAdmin: boolean; createdAt: string }[];
+  joinLinks: { id: string; url: string; expiresAt: string; maxUses: number; uses: number }[];
+  limits: { maxAdmins: number; maxMembers: number; maxLinkUses: number; linkDays: number };
+}
+
+export interface MyClubsData {
+  myClubs: { id: string; name: string; description: string | null; status: ClubMemberStatus }[];
+  myClubInvites: { id: string; clubName: string; asAdmin: boolean; token: string }[];
+}
+
+export interface JoinPreviewDto {
+  clubName: string;
+  description: string | null;
+  kind: "INVITE" | "LINK";
+  asAdmin: boolean;
+  problem: string | null;
+  emailHint: string | null;
+  myStatus: ClubMemberStatus | null;
+  clubId: string | null;
+}
+
+export interface ConsoleClubDto {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  closedAt: string | null;
+  memberCount: number;
+  adminCount: number;
+  pendingAdminEmails: string[];
+}
+
+export interface AppStaffDto {
+  userId: string;
+  displayName: string;
+  email: string | null;
+  role: AppRole;
+  grantedAt: string;
 }

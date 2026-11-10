@@ -4,6 +4,12 @@ export const identityTypeDefs = /* GraphQL */ `
     IMPERIAL
   }
 
+  "App-wide roles for the admin console. They never grant a club role."
+  enum AppRole {
+    OWNER
+    ADMIN
+  }
+
   type User {
     id: ID!
     displayName: String!
@@ -11,6 +17,16 @@ export const identityTypeDefs = /* GraphQL */ `
     email: String
     units: UnitsPreference!
     createdAt: String!
+    "OWNER or ADMIN for the console, otherwise null."
+    appRole: AppRole
+  }
+
+  type AppStaff {
+    userId: ID!
+    displayName: String!
+    email: String
+    role: AppRole!
+    grantedAt: String!
   }
 
   input UpdateProfileInput {
@@ -21,6 +37,8 @@ export const identityTypeDefs = /* GraphQL */ `
   type Query {
     """The currently authenticated user, or null if not signed in."""
     me: User
+    "The App Owner and App Admins. Console only."
+    appStaff: [AppStaff!]!
   }
 
   type Mutation {
@@ -32,5 +50,10 @@ export const identityTypeDefs = /* GraphQL */ `
     devCreateUser(displayName: String!): User!
 
     updateProfile(input: UpdateProfileInput!): User!
+
+    "App Owner only. The person must have signed in to TrackFit once."
+    addAppAdmin(email: String!): [AppStaff!]!
+    "App Owner only."
+    removeAppAdmin(userId: ID!): [AppStaff!]!
   }
 `;

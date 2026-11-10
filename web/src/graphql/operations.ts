@@ -191,7 +191,7 @@ export const PLAN_FIELDS = gql`
 
 export const MY_PLAN = gql`
   query MyPlan {
-    me { id displayName email units }
+    me { id displayName email units appRole showClubs }
     myPlan { ...PlanFields }
   }
   ${PLAN_FIELDS}
@@ -411,4 +411,124 @@ export const COMPLETE_CHECKIN = gql`
     completeCheckin(today: $today, answers: $answers, startDate: $startDate) { ...PlanFields }
   }
   ${PLAN_FIELDS}
+`;
+
+// ── Clubs ───────────────────────────────────────────────────────────────
+
+export const CLUB_FIELDS = gql`
+  fragment ClubFields on Club {
+    id name description
+    me { userId isAdmin isCoach }
+    members { userId displayName isAdmin isCoach isMe joinedAt }
+    joinRequests { userId displayName requestedAt }
+    invites { id email asAdmin createdAt }
+    joinLinks { id url expiresAt maxUses uses }
+    limits { maxAdmins maxMembers maxLinkUses linkDays }
+  }
+`;
+
+export const MY_CLUBS = gql`
+  query MyClubs {
+    myClubs { id name description status }
+    myClubInvites { id clubName asAdmin token }
+  }
+`;
+
+export const CLUB = gql`
+  query Club($id: ID!) { club(id: $id) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const JOIN_PREVIEW = gql`
+  query JoinPreview($token: String!) {
+    joinPreview(token: $token) { clubName description kind asAdmin problem emailHint myStatus clubId }
+  }
+`;
+
+export const JOIN_CLUB = gql`
+  mutation JoinClub($token: String!, $consent: Boolean!) { joinClub(token: $token, consent: $consent) { clubId status } }
+`;
+
+export const DECLINE_CLUB_INVITE = gql`
+  mutation DeclineClubInvite($id: ID!) { declineClubInvite(id: $id) }
+`;
+
+export const LEAVE_CLUB = gql`
+  mutation LeaveClub($clubId: ID!) { leaveClub(clubId: $clubId) }
+`;
+
+export const INVITE_TO_CLUB = gql`
+  mutation InviteToClub($clubId: ID!, $emails: [String!]!) { inviteToClub(clubId: $clubId, emails: $emails) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const REVOKE_CLUB_INVITE = gql`
+  mutation RevokeClubInvite($id: ID!) { revokeClubInvite(id: $id) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const CREATE_JOIN_LINK = gql`
+  mutation CreateJoinLink($clubId: ID!, $maxUses: Int) { createJoinLink(clubId: $clubId, maxUses: $maxUses) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const TURN_OFF_JOIN_LINK = gql`
+  mutation TurnOffJoinLink($id: ID!) { turnOffJoinLink(id: $id) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const RESPOND_TO_JOIN_REQUEST = gql`
+  mutation RespondToJoinRequest($clubId: ID!, $userId: ID!, $approve: Boolean!) {
+    respondToJoinRequest(clubId: $clubId, userId: $userId, approve: $approve) { ...ClubFields }
+  }
+  ${CLUB_FIELDS}
+`;
+
+export const SET_CLUB_MEMBER_ROLES = gql`
+  mutation SetClubMemberRoles($clubId: ID!, $userId: ID!, $isAdmin: Boolean!, $isCoach: Boolean!) {
+    setClubMemberRoles(clubId: $clubId, userId: $userId, isAdmin: $isAdmin, isCoach: $isCoach) { ...ClubFields }
+  }
+  ${CLUB_FIELDS}
+`;
+
+export const REMOVE_CLUB_MEMBER = gql`
+  mutation RemoveClubMember($clubId: ID!, $userId: ID!) { removeClubMember(clubId: $clubId, userId: $userId) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+// ── Console (App Owner and App Admins) ──────────────────────────────────
+
+export const CONSOLE_CLUB_FIELDS = gql`
+  fragment ConsoleClubFields on ConsoleClub { id name description createdAt closedAt memberCount adminCount pendingAdminEmails }
+`;
+
+export const CONSOLE = gql`
+  query Console {
+    consoleClubs { ...ConsoleClubFields }
+    appStaff { userId displayName email role grantedAt }
+  }
+  ${CONSOLE_CLUB_FIELDS}
+`;
+
+export const CREATE_CLUB = gql`
+  mutation CreateClub($input: CreateClubInput!) { createClub(input: $input) { ...ConsoleClubFields } }
+  ${CONSOLE_CLUB_FIELDS}
+`;
+
+export const CLOSE_CLUB = gql`
+  mutation CloseClub($id: ID!) { closeClub(id: $id) { ...ConsoleClubFields } }
+  ${CONSOLE_CLUB_FIELDS}
+`;
+
+export const ADD_CLUB_ADMIN_FROM_CONSOLE = gql`
+  mutation AddClubAdminFromConsole($clubId: ID!, $email: String!) { addClubAdminFromConsole(clubId: $clubId, email: $email) { ...ConsoleClubFields } }
+  ${CONSOLE_CLUB_FIELDS}
+`;
+
+export const ADD_APP_ADMIN = gql`
+  mutation AddAppAdmin($email: String!) { addAppAdmin(email: $email) { userId displayName email role grantedAt } }
+`;
+
+export const REMOVE_APP_ADMIN = gql`
+  mutation RemoveAppAdmin($userId: ID!) { removeAppAdmin(userId: $userId) { userId displayName email role grantedAt } }
 `;

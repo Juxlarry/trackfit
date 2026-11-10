@@ -6,7 +6,7 @@ import { findUserById, type UserRow } from "../../modules/identity/identity.repo
 export interface GraphQLContext {
   user: UserRow | null;
   /** How the caller signed in. Null in dev-bypass mode. */
-  auth?: { emailVerified: boolean; signInProvider: string | null } | null;
+  auth?: { emailVerified: boolean; signInProvider: string | null; email?: string | null } | null;
   /** Caller's browser, stored with push subscriptions so people can tell devices apart. */
   userAgent?: string | null;
 }
@@ -44,7 +44,7 @@ export async function buildContext(headers: IncomingHttpHeaders): Promise<GraphQ
   const idToken = authHeader.slice("Bearer ".length);
   const verified = await verifyFirebaseIdToken(idToken);
   const user = await getOrCreateUser(verified);
-  return { user, auth: { emailVerified: verified.emailVerified, signInProvider: verified.signInProvider } };
+  return { user, auth: { emailVerified: verified.emailVerified, signInProvider: verified.signInProvider, email: verified.email ?? null } };
 }
 
 export function requireUser(context: GraphQLContext): UserRow {
@@ -54,4 +54,15 @@ export function requireUser(context: GraphQLContext): UserRow {
     throw err;
   }
   return context.user;
+}
+
+/**
+ * The caller's email, lower-cased, only when it's proven theirs: from a
+ * verified Firebase token. Email/password accounts can sign up with any
+ * address, so an unverified one never counts. In dev-bypass mode (no auth
+ * object at all) the stored email is trusted, so invites work locally.
+ */
+export function verifiedEmail(context: GraphQLContext): string | null {
+  if (context.auth) return context.auth.emailVerified && context.auth.email ? context.auth.email.toLowerCase() : null;
+  return DEV_AUTH_BYPASS && context.user?.email ? context.user.email.toLowerCase() : null;
 }

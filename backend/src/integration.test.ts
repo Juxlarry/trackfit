@@ -488,3 +488,186 @@ test("everything requires sign-in except previewPlan", async () => {
   const r = await gql(`{ myPlan { programId } }`);
   assert.equal(r.errors?.[0].extensions.code, "UNAUTHENTICATED");
 });
+
+// ── Clubs v1, first build step ──────────────────────────────────────────
+
+async function userWithEmail(name: string, email: string): Promise<string> {
+  const id = await newUser(name);
+  await pool.query(`UPDATE identity.users SET email = $2 WHERE id = $1`, [id, email]);
+  return id;
+}
+const tokenIn = (text: string) => /\/join\/([A-Za-z0-9_-]+)/.exec(text)![1];
+const lastMailTo = (to: string) => [...mailer.sent].reverse().find((m) => m.to === to);
+const CLUB = `id name me{ isAdmin isCoach } members{ userId displayName isAdmin isCoach isMe } joinRequests{ userId displayName } invites{ id email } joinLinks{ id url uses maxUses expiresAt } limits{ maxAdmins maxMembers }`;
+const JOIN = `mutation($t:String!,$c:Boolean!){ joinClub(token:$t, consent:$c){ clubId status } }`;
+const ROLES = `mutation($c:ID!,$u:ID!,$a:Boolean!,$k:Boolean!){ setClubMemberRoles(clubId:$c,userId:$u,isAdmin:$a,isCoach:$k){ members{ userId isAdmin isCoach } } }`;
+
+let owner = "", staff = "", kofi = "", ama = "", yaw = "", esi = "", clubId = "";
+
+test("app roles: the owner is set by script, adds App Admins, and the console is staff-only", async () => {
+  owner = await userWithEmail("Owner", "owner@example.com");
+  staff = await userWithEmail("Staff", "staff@example.com");
+  execFileSync("npx", ["tsx", "scripts/app-owner.ts", "OWNER@example.com"], { env: { ...process.env, DATABASE_URL: TEST_DB }, stdio: "pipe" });
+  assert.equal((await ok(`{ me { appRole showClubs } }`, {}, owner)).me.appRole, "OWNER");
+  assert.equal((await ok(`{ me { appRole showClubs } }`, {}, staff)).me.showClubs, false);
+
+  const denied = await gql(`{ consoleClubs { id } }`, {}, staff);
+  assert.equal(denied.errors?.[0].extensions.code, "FORBIDDEN");
+  const added = await ok(`mutation($e:String!){ addAppAdmin(email:$e){ email role } }`, { e: "staff@example.com" }, owner);
+  assert.deepEqual(added.addAppAdmin.map((s: any) => s.role), ["OWNER", "ADMIN"]);
+  assert.equal((await ok(`{ me { appRole showClubs } }`, {}, staff)).me.showClubs, true, "staff see Clubs to reach the console");
+
+  const notOwner = await gql(`mutation($e:String!){ addAppAdmin(email:$e){ email } }`, { e: "owner@example.com" }, staff);
+  assert.equal(notOwner.errors?.[0].extensions.code, "FORBIDDEN", "only the owner adds admins");
+  const unknown = await gql(`mutation($e:String!){ addAppAdmin(email:$e){ email } }`, { e: "nobody@example.com" }, owner);
+  assert.equal(unknown.errors?.[0].extensions.code, "BAD_USER_INPUT");
+  const otherUser = await newUser("Not staff");
+  assert.equal((await ok(`{ me { appRole } }`, {}, otherUser)).me.appRole, null);
+});
+
+test("clubs: created in the console, the named first Admin joins by invite, and only that verified address can", async () => {
+  kofi = await userWithEmail("Kofi", "kofi@example.com");
+  ama = await userWithEmail("Ama", "ama@example.com");
+  mailer.sent.length = 0;
+  const created = await ok(`mutation($i:CreateClubInput!){ createClub(input:$i){ id name memberCount adminCount pendingAdminEmails } }`,
+    { i: { name: "  Office Gym Crew ", description: "After-work sessions", firstAdminEmail: "Kofi@Example.com" } }, staff);
+  clubId = created.createClub.id;
+  assert.equal(created.createClub.name, "Office Gym Crew");
+  assert.deepEqual(created.createClub.pendingAdminEmails, ["kofi@example.com"]);
+  assert.equal(created.createClub.memberCount, 0, "the creator doesn't join");
+  const mail = lastMailTo("kofi@example.com")!;
+  assert.match(mail.subject, /running Office Gym Crew/);
+  const token = tokenIn(mail.text);
+
+  const preview = await ok(`query($t:String!){ joinPreview(token:$t){ clubName kind asAdmin problem emailHint myStatus clubId } }`, { t: token });
+  assert.deepEqual(preview.joinPreview, { clubName: "Office Gym Crew", kind: "INVITE", asAdmin: true, problem: null, emailHint: "k•••@example.com", myStatus: null, clubId: null });
+  assert.equal((await ok(`{ me { showClubs } }`, {}, kofi)).me.showClubs, true, "an open invite shows Clubs");
+  assert.equal((await ok(`{ myClubInvites { clubName asAdmin } }`, {}, kofi)).myClubInvites[0].asAdmin, true);
+
+  const wrong = await gql(JOIN, { t: token, c: true }, ama);
+  assert.equal(wrong.errors?.[0].extensions.code, "FORBIDDEN");
+  assert.match(wrong.errors?.[0].message, /k•••@example\.com/);
+  const unverified = await gql(JOIN, { t: token, c: true }, kofi, { emailVerified: false, signInProvider: "password", email: "kofi@example.com" });
+  assert.equal(unverified.errors?.[0].extensions.code, "FORBIDDEN", "an unverified address can't claim an invite");
+  const noConsent = await gql(JOIN, { t: token, c: false }, kofi);
+  assert.equal(noConsent.errors?.[0].extensions.code, "BAD_USER_INPUT");
+
+  const joined = await ok(JOIN, { t: token, c: true }, kofi, { emailVerified: true, signInProvider: "google.com", email: "KOFI@example.com" });
+  assert.deepEqual(joined.joinClub, { clubId, status: "ACTIVE" });
+  const club = await ok(`query($id:ID!){ club(id:$id){ ${CLUB} } }`, { id: clubId }, kofi);
+  assert.deepEqual(club.club.me, { isAdmin: true, isCoach: false });
+  const again = await gql(JOIN, { t: token, c: true }, kofi);
+  assert.equal(again.errors?.[0].extensions.code, "BAD_USER_INPUT", "an invite works once");
+
+  const { rows } = await pool.query(`SELECT event, detail FROM clubs.membership_events WHERE club_id = $1 AND user_id = $2 ORDER BY at`, [clubId, kofi]);
+  assert.deepEqual(rows.map((r) => r.event), ["JOINED", "ADMIN_ADDED"]);
+  assert.match(rows[0].detail, /accepted coach visibility/);
+});
+
+test("clubs: Admins invite by email and by join link, and approve link requests", async () => {
+  yaw = await userWithEmail("Yaw", "yaw@example.com");
+  esi = await userWithEmail("Esi", "esi@example.com");
+  mailer.sent.length = 0;
+  const inv = await ok(`mutation($c:ID!,$e:[String!]!){ inviteToClub(clubId:$c, emails:$e){ invites{ email } } }`,
+    { c: clubId, e: ["ama@example.com", " AMA@example.com", "kofi@example.com"] }, kofi);
+  assert.deepEqual(inv.inviteToClub.invites.map((i: any) => i.email), ["ama@example.com"], "deduped, and existing members skipped");
+  assert.equal(mailer.sent.length, 1);
+  const bad = await gql(`mutation($c:ID!,$e:[String!]!){ inviteToClub(clubId:$c, emails:$e){ id } }`, { c: clubId, e: ["not-an-email"] }, kofi);
+  assert.equal(bad.errors?.[0].extensions.code, "BAD_USER_INPUT");
+
+  const mine = await ok(`{ myClubInvites { token clubName } }`, {}, ama);
+  assert.equal(mine.myClubInvites[0].clubName, "Office Gym Crew");
+  assert.equal((await ok(JOIN, { t: mine.myClubInvites[0].token, c: true }, ama)).joinClub.status, "ACTIVE");
+
+  const memberTries = await gql(`mutation($c:ID!){ createJoinLink(clubId:$c){ id } }`, { c: clubId }, ama);
+  assert.equal(memberTries.errors?.[0].extensions.code, "FORBIDDEN", "only Admins make links");
+  const linked = await ok(`mutation($c:ID!){ createJoinLink(clubId:$c, maxUses:2){ joinLinks{ url uses maxUses expiresAt } } }`, { c: clubId }, kofi);
+  const link = linked.createJoinLink.joinLinks[0];
+  const days = (Date.parse(link.expiresAt) - Date.now()) / 86_400_000;
+  assert.ok(days > 6.9 && days <= 7, "links last 7 days");
+  const linkToken = tokenIn(link.url);
+
+  const p = await ok(`query($t:String!){ joinPreview(token:$t){ kind problem emailHint } }`, { t: linkToken });
+  assert.deepEqual(p.joinPreview, { kind: "LINK", problem: null, emailHint: null });
+  mailer.sent.length = 0;
+  assert.equal((await ok(JOIN, { t: linkToken, c: true }, yaw)).joinClub.status, "WAITING");
+  assert.equal((await ok(JOIN, { t: linkToken, c: true }, yaw)).joinClub.status, "WAITING", "asking twice doesn't use the link twice");
+  assert.match(lastMailTo("kofi@example.com")!.subject, /Yaw wants to join Office Gym Crew/);
+  assert.equal((await ok(`query($id:ID!){ club(id:$id){ id } }`, { id: clubId }, yaw)).club, null, "waiting members can't open the club");
+  assert.deepEqual((await ok(`{ myClubs { name status } }`, {}, yaw)).myClubs, [{ name: "Office Gym Crew", status: "WAITING" }]);
+  assert.deepEqual((await ok(`query($id:ID!){ club(id:$id){ joinRequests{ userId } } }`, { id: clubId }, ama)).club.joinRequests, [], "only Admins see requests");
+
+  const approved = await ok(`mutation($c:ID!,$u:ID!){ respondToJoinRequest(clubId:$c,userId:$u,approve:true){ ${CLUB} } }`, { c: clubId, u: yaw }, kofi);
+  assert.deepEqual(approved.respondToJoinRequest.joinRequests, []);
+  assert.deepEqual(approved.respondToJoinRequest.members.map((m: any) => m.displayName), ["Kofi", "Ama", "Yaw"]);
+  assert.equal(approved.respondToJoinRequest.joinLinks[0].uses, 1);
+
+  assert.equal((await ok(JOIN, { t: linkToken, c: true }, esi)).joinClub.status, "WAITING");
+  await ok(`mutation($c:ID!,$u:ID!){ respondToJoinRequest(clubId:$c,userId:$u,approve:false){ id } }`, { c: clubId, u: esi }, kofi);
+  const used = await ok(`query($t:String!){ joinPreview(token:$t){ problem myStatus } }`, { t: linkToken }, esi);
+  assert.match(used.joinPreview.problem, /used as many times/);
+  assert.equal(used.joinPreview.myStatus, "DECLINED");
+});
+
+test("club roles: at most 3 Admins, never none, any number of Coaches, and the last Admin can't leave", async () => {
+  await ok(ROLES, { c: clubId, u: ama, a: true, k: true }, kofi);
+  await ok(ROLES, { c: clubId, u: yaw, a: true, k: false }, kofi);
+  const invite = await ok(`mutation($c:ID!,$e:[String!]!){ inviteToClub(clubId:$c, emails:$e){ invites{ id email } } }`, { c: clubId, e: ["esi@example.com"] }, kofi);
+  await ok(JOIN, { t: (await ok(`{ myClubInvites { token } }`, {}, esi)).myClubInvites[0].token, c: true }, esi);
+  assert.equal(invite.inviteToClub.invites.length, 1);
+  const fourth = await gql(ROLES, { c: clubId, u: esi, a: true, k: false }, kofi);
+  assert.equal(fourth.errors?.[0].extensions.code, "BAD_USER_INPUT");
+  assert.match(fourth.errors?.[0].message, /at most 3 Admins/);
+  const coaches = await ok(ROLES, { c: clubId, u: esi, a: false, k: true }, kofi);
+  assert.equal(coaches.setClubMemberRoles.members.filter((m: any) => m.isCoach).length, 2);
+  const byMember = await gql(ROLES, { c: clubId, u: ama, a: false, k: false }, esi);
+  assert.equal(byMember.errors?.[0].extensions.code, "FORBIDDEN");
+
+  // Two Admins step down, leaving Kofi as the only one.
+  await ok(ROLES, { c: clubId, u: yaw, a: false, k: false }, yaw);
+  await ok(ROLES, { c: clubId, u: ama, a: false, k: true }, kofi);
+  const stepDown = await gql(ROLES, { c: clubId, u: kofi, a: false, k: false }, kofi);
+  assert.match(stepDown.errors?.[0].message, /at least one Admin/);
+  const leave = await gql(`mutation($c:ID!){ leaveClub(clubId:$c) }`, { c: clubId }, kofi);
+  assert.match(leave.errors?.[0].message, /last Admin/);
+
+  // Two Admins leaving at the same moment: exactly one gets out.
+  await ok(ROLES, { c: clubId, u: ama, a: true, k: true }, kofi);
+  const both = await Promise.all([kofi, ama].map((u) => gql(`mutation($c:ID!){ leaveClub(clubId:$c) }`, { c: clubId }, u)));
+  assert.equal(both.filter((r) => !r.errors).length, 1);
+  const { rows } = await pool.query(`SELECT count(*)::int AS n FROM clubs.memberships WHERE club_id = $1 AND status = 'ACTIVE' AND is_admin`, [clubId]);
+  assert.equal(rows[0].n, 1);
+  const stayed = both[0].errors ? kofi : ama;
+  const left = stayed === kofi ? ama : kofi;
+  assert.equal((await ok(`query($id:ID!){ club(id:$id){ id } }`, { id: clubId }, left)).club, null);
+
+  const removed = await ok(`mutation($c:ID!,$u:ID!){ removeClubMember(clubId:$c,userId:$u){ members{ userId } } }`, { c: clubId, u: yaw }, stayed);
+  assert.ok(!removed.removeClubMember.members.some((m: any) => m.userId === yaw));
+  const self = await gql(`mutation($c:ID!,$u:ID!){ removeClubMember(clubId:$c,userId:$u){ id } }`, { c: clubId, u: stayed }, stayed);
+  assert.equal(self.errors?.[0].extensions.code, "BAD_USER_INPUT");
+});
+
+test("clubs: expired links, closed clubs and the off switch", async () => {
+  const admin = (await pool.query(`SELECT user_id FROM clubs.memberships WHERE club_id = $1 AND is_admin`, [clubId])).rows[0].user_id;
+  const made = await ok(`mutation($c:ID!){ createJoinLink(clubId:$c){ joinLinks{ id url } } }`, { c: clubId }, admin);
+  const link = made.createJoinLink.joinLinks[0];
+  await pool.query(`UPDATE clubs.join_links SET expires_at = now() - interval '1 minute' WHERE id = $1`, [link.id]);
+  const late = await newUser("Late");
+  assert.match((await ok(`query($t:String!){ joinPreview(token:$t){ problem } }`, { t: tokenIn(link.url) })).joinPreview.problem, /expired/);
+  assert.match((await gql(JOIN, { t: tokenIn(link.url), c: true }, late)).errors?.[0].message, /expired/);
+  assert.equal((await ok(`query($t:String!){ joinPreview(token:$t){ problem } }`, { t: "no-such-token" })).joinPreview, null);
+
+  const closed = await ok(`mutation($id:ID!){ closeClub(id:$id){ closedAt } }`, { id: clubId }, owner);
+  assert.ok(closed.closeClub.closedAt);
+  assert.deepEqual((await ok(`{ myClubs { id } }`, {}, admin)).myClubs, []);
+  assert.equal((await ok(`{ me { showClubs } }`, {}, esi)).me.showClubs, false, "nothing open left for a plain member");
+
+  process.env.CLUBS_ENABLED = "false";
+  try {
+    assert.equal((await gql(`{ myClubs { id } }`, {}, esi)).errors?.[0].extensions.code, "FORBIDDEN");
+    assert.equal((await ok(`{ me { showClubs } }`, {}, owner)).me.showClubs, false);
+  } finally {
+    delete process.env.CLUBS_ENABLED;
+  }
+  assert.equal((await gql(`{ myClubs { id } }`)).errors?.[0].extensions.code, "UNAUTHENTICATED");
+});

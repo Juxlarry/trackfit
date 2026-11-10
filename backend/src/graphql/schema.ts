@@ -8,6 +8,8 @@ import { nutritionTypeDefs } from "../modules/nutrition/nutrition.schema.js";
 import { nutritionResolvers } from "../modules/nutrition/nutrition.resolvers.js";
 import { notificationsTypeDefs } from "../modules/notifications/notifications.schema.js";
 import { notificationsResolvers } from "../modules/notifications/notifications.resolvers.js";
+import { clubsTypeDefs } from "../modules/clubs/clubs.schema.js";
+import { clubsResolvers } from "../modules/clubs/clubs.resolvers.js";
 
 /**
  * Schema composition: Identity defines the base Query/Mutation types,
@@ -15,9 +17,9 @@ import { notificationsResolvers } from "../modules/notifications/notifications.r
  * organized by module"). When Nutrition/Goals/Social/Notifications are
  * built, they plug in here the same way Tracking does. MVP 2 adds Planning
  * (onboarding orchestration, architecture.md §3.1) and Nutrition; push
- * reminders add Notifications.
+ * reminders add Notifications; Clubs v1 adds Clubs.
  */
-export const typeDefs = [identityTypeDefs, trackingTypeDefs, planningTypeDefs, nutritionTypeDefs, notificationsTypeDefs];
+export const typeDefs = [identityTypeDefs, trackingTypeDefs, planningTypeDefs, nutritionTypeDefs, notificationsTypeDefs, clubsTypeDefs];
 
 function mergeResolvers(...maps: Record<string, any>[]) {
   const merged: Record<string, any> = {};
@@ -29,4 +31,4 @@ function mergeResolvers(...maps: Record<string, any>[]) {
   return merged;
 }
 
-export const resolvers = mergeResolvers(identityResolvers, trackingResolvers, planningResolvers, nutritionResolvers, notificationsResolvers);
+export const resolvers = mergeResolvers(identityResolvers, trackingResolvers, planningResolvers, nutritionResolvers, notificationsResolvers, clubsResolvers);

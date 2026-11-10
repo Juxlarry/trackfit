@@ -10,10 +10,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
-    "test": "node --import tsx --test \"src/modules/**/*.test.ts\"",
+    "test": "node --import tsx --test \"src/modules/**/*.test.ts\" \"src/shared/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "db:migrate": "tsx scripts/migrate.ts",
     "gen:seed": "tsx scripts/gen-seed.ts",
+    "app:owner": "tsx scripts/app-owner.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 src/integration.test.ts"
   },
   "dependencies": {

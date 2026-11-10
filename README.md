@@ -18,14 +18,15 @@ Fitness tracker with a personalised onboarding quiz, a generated 6-week training
 - **API**: GraphQL (Apollo Server 5), modular monolith. Each module has its own Postgres schema:
   - `identity`: users, auth, health screening, intake;
   - `tracking`: weight, exercises, templates, sessions, milestones, generated programs, activities;
-  - `nutrition`: recipes, nutrition plans, meal entries, food logs, custom foods, water.
+  - `nutrition`: recipes, nutrition plans, meal entries, food logs, custom foods, water;
+  - `clubs`: clubs, memberships with Admin and Coach roles, invites, join links and a log of membership changes (Clubs v1, first step). App-wide roles for the console live in `identity.app_roles`.
   - The `planning` module orchestrates onboarding and owns no tables of its own.
 - **Plan engine**: `backend/src/modules/planning/engine` is pure TypeScript with no I/O. The backend uses it to generate plans. The web app imports the same code through the `@engine` Vite alias for live previews in the quiz, so the rules exist once. The seed SQL for exercises and recipes is generated from its catalogue.
 - **Auth**: Firebase Authentication with Google and email/password. The backend verifies ID tokens.
 - **Week-6 check-in**: from day 40 of a cycle, `/checkin` shows what the cycle did (weight against planned pace, sessions done, best lift), asks three questions and builds the next cycle: calories recalculated and corrected ±150 kcal against the pace, day count, set changes, rotated accessories and starting weights from weeks 5-6. Rules: `backend/src/modules/planning/engine/checkin.ts`; history in `tracking.cycle_checkins`.
 - **Log any food** on Fuel: search about 140 foods, Ghanaian dishes first, with local names (`backend/src/modules/planning/engine/foods.ts`, searched on the device), pick a household portion or grams and the meal. Foods not in the list can be quick-added and are kept in "My foods". A food logged "instead of" a planned meal stops that meal counting. The daily totals combine ticked meals and logged foods, and the week-6 check-in pre-answers its eating question from them. Optional water tracking uses sachet and Voltic/Bel-Aqua bottle sizes, with a target of about 35 ml/kg (+500 ml on training days).
 - **Notifications**: reminders as Web Push (VAPID, `web-push`): training days, the evening before each cycle starts, weekly weigh-ins, Week 3/6 photo slots (skipped once that slot has a photo from this cycle; the app reports filled slots to `tracking.progress_photos`), missed sessions (those three switchable, `notifications.reminder_prefs`) and the week-6 check-in on days 40-42. Rules and times are at the top of `backend/src/modules/notifications/reminders.ts`. A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
-- **Email**: a `Mailer` interface. Only `MAIL_PROVIDER=console` (logs the email) exists so far; a real provider is an open item.
+- **Email**: a `Mailer` interface. `MAIL_PROVIDER=console` (the default) logs each email; `MAIL_PROVIDER=resend` sends through Resend (see "Clubs and email" under Deploying).
 - **Web**: Vite, React 19, Apollo Client 4 and react-router 7. Fonts are Bricolage Grotesque, Onest and JetBrains Mono. The theme is "Sunrise Lime" with light and dark modes.
 
 ## Repo layout
@@ -104,7 +105,6 @@ That run had no console errors.
 
 ## Open items
 
-- **Email provider**: welcome emails only go to the console until a provider is chosen (for example Resend or SES).
 - **Food numbers** are estimates from standard food tables (about ±15%). Spot-check the Ghanaian dishes against local data when possible. Barcode scanning is not built.
 - **Meal audit and "previewed first session"** flags are kept per device in localStorage.
 
@@ -177,6 +177,22 @@ All free tiers, no card on file:
    - Set `CRON_SECRET` in Render to a long random string (`openssl rand -hex 32`).
    - The free Render plan sleeps, so something outside has to wake it. At [cron-job.org](https://cron-job.org) (free), create a job: URL `https://<your-render-url>/jobs/reminders`, every 5 minutes, method POST, header `Authorization: Bearer <CRON_SECRET>`. It answers `{"sent":N}`. While awake, the API also checks every 5 minutes by itself; the two never double-send.
    - On a phone: Profile > Workout reminder > Save and allow notifications, then "Send a test". iPhone needs iOS 16.4+ with TrackFit added to the home screen.
+
+7. **Clubs and email.** Clubs are invite-only, and only the App Owner and App Admins can create them.
+   - **Resend: the domain.** You need a domain you own; `web.app` and `onrender.com` can't send. In Resend, go to Domains > Add Domain and add a sending subdomain such as `mail.your-domain`. This keeps app mail from affecting your main domain's reputation. Add the records Resend lists at your DNS host: a DKIM TXT at `resend._domainkey.mail`, plus an MX and an SPF TXT at `send.mail`. A `_dmarc` TXT of `v=DMARC1; p=none;` is optional but helps. On Cloudflare, set them to "DNS only". Click Verify and wait for "Verified".
+   - **Resend: the key.** Go to API Keys > Create, with "Sending access" restricted to that domain. It's shown once.
+   - **Render.** In dashboard.render.com, open `trackfit-api` > Environment and set:
+     - `MAIL_PROVIDER=resend`
+     - `RESEND_API_KEY`
+     - `MAIL_FROM`, on the verified domain exactly, e.g. `TrackFit <hello@mail.your-domain>`. The mailbox doesn't need to exist.
+     - `MAIL_REPLY_TO`, optional: an inbox you read, so replies reach you.
+     - `CLUBS_ENABLED=true`
+
+     Check `APP_URL` is the live web address, because email links use it. These are `sync: false` in `render.yaml`, so a Blueprint sync never overwrites them. Welcome emails start going out for real too.
+   - **Database.** From `backend/`, run `DATABASE_URL="<neon connection string>" npm run db:migrate`. The Clubs tables are additive, so this is safe before the merge.
+   - **Set the App Owner.** Sign in once to the live TrackFit web app with your own email; this creates your account. Then run `DATABASE_URL="<neon connection string>" npm run app:owner -- you@example.com` from `backend/`. Add App Admins later from the console (Clubs > Open the console). To hand over ownership, add `--replace`.
+   - **Check.** Create a test club in the console with yourself as first Admin, then confirm the invite arrives. Resend's Emails page shows each send. A failed send never fails the action: it appears in Render's Logs as "Club email failed" or "Welcome email failed" with Resend's reason. A `403 domain is not verified` means `MAIL_FROM` isn't on the verified domain.
+   - **Emergency stop.** Setting `CLUBS_ENABLED` to `false` in Render hides Clubs everywhere and rejects every Clubs request.
 
 **Never set `DEV_AUTH_BYPASS` on Render, and never set `VITE_DEV_AUTH_BYPASS` to `"true"` for a deployed build.**
 
@@ -425,10 +441,22 @@ Routines are set by Admins, recur, and are optional for members. Unlike challeng
 
 Each step can go to testers on its own:
 
-1. **Console and clubs:** app roles, creating clubs, invites, join links and approval, club roles.
+1. **Console and clubs (built):** app roles, creating clubs, invites, join links and approval, club roles.
 2. **Feed:** posts, sharing after workouts and activities, media, comments and reactions, the coaches' Members page.
 3. **Club routines.**
 4. **Challenges:** creating them, the pop-up, showing them in sessions, Fuel, water and the activity logger, proof, wins.
+
+**Step 1 as built**
+
+- **API:** the `clubs` module in `backend/src/modules/clubs/` and `sql/010_clubs.sql`.
+  - The console mutations check `requireAppStaff`. Club changes lock the club row before checking the Admin and member counts.
+  - `verifiedEmail` in `shared/auth/context.ts` only trusts an address from a verified sign-in token.
+- **Web:**
+  - Clubs pages are `/clubs`, `/clubs/:id` and `/console`, in `web/src/app/clubs/`. The Clubs tab shows only when `me.showClubs` is true.
+  - Invite emails and join links open `/join/:token` (`web/src/pages/JoinPage.tsx`), which works signed out. A link opened before sign-in or the quiz is kept on the device (`web/src/lib/pendingJoin.ts`), and the app returns to it afterwards.
+- **Not yet:**
+  - **Club photo:** set at creation in the spec, but it needs the media storage that arrives with posts in step 2.
+  - **Account deletion:** memberships use `ON DELETE RESTRICT`, so the delete-account flow, when it's built, has to hand over Admin first.
 
 ### Approved defaults
 
@@ -640,7 +668,7 @@ What's for sale and at what price is in [Paid features](#paid-features-planned).
 **Infrastructure that must change first**
 
 - **API hosting:** the free Render plan sleeps after 15 idle minutes, so the app is slow to answer after a break, including for payment webhooks. Move to a paid plan before real money flows, which ends the "no card on file" setup.
-- **Email:** only `MAIL_PROVIDER=console` exists, so a real provider is needed for invites and receipts.
+- **Email:** Resend is in place (Deploying step 7). Receipts will need their own templates.
 - **Mobile apps:** the web app is unaffected by app-store billing. Before the Flutter build, check Apple's in-app purchase rules for Premium, tips, videos and coaching, which may need Apple's payment system and fee. Fitness training in real time is treated differently from content, and correction videos are not real time.
 
 ### Phases

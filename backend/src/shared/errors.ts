@@ -9,6 +9,11 @@ export function notFound(message: string): GraphQLError {
   return new GraphQLError(message, { extensions: { code: "NOT_FOUND" } });
 }
 
+/** Signed in, but not allowed to do this. */
+export function forbidden(message: string): GraphQLError {
+  return new GraphQLError(message, { extensions: { code: "FORBIDDEN" } });
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function assertIsoDate(value: string, field = "date"): string {
   if (!ISO_DATE.test(value) || Number.isNaN(Date.parse(value + "T00:00:00Z"))) {

@@ -35,7 +35,7 @@ img{max-width:100%}
 [hidden]{display:none!important}
 body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
-input{font:inherit;color:inherit}
+input,textarea{font:inherit;color:inherit}
 .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
 :focus-visible{outline:2.5px solid var(--coral);outline-offset:3px;border-radius:10px}
 svg.lucide{width:18px;height:18px;stroke-width:1.75;flex:none}

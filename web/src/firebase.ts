@@ -65,6 +65,20 @@ export async function resendVerification(): Promise<void> {
   if (user) await sendEmailVerification(user);
 }
 
+/**
+ * After someone confirms their email in another tab, the cached ID token still
+ * says unverified for up to an hour. Reloads the user and forces a new token;
+ * true if the email is now verified.
+ */
+export async function refreshEmailVerified(): Promise<boolean> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) return false;
+  await user.reload();
+  if (!user.emailVerified) return false;
+  await user.getIdToken(true);
+  return true;
+}
+
 /** Plain-language messages for the Firebase errors users actually hit. */
 export function authErrorMessage(err: unknown): string {
   const code = (err as { code?: string })?.code ?? "";

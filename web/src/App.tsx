@@ -17,6 +17,10 @@ const FuelPage = lazy(() => import("./app/FuelPage").then((m) => ({ default: m.F
 const ProgressPage = lazy(() => import("./app/ProgressPage").then((m) => ({ default: m.ProgressPage })));
 const CheckinPage = lazy(() => import("./app/CheckinPage").then((m) => ({ default: m.CheckinPage })));
 const SessionPage = lazy(() => import("./app/SessionPage").then((m) => ({ default: m.SessionPage })));
+const JoinPage = lazy(() => import("./pages/JoinPage").then((m) => ({ default: m.JoinPage })));
+const ClubsPage = lazy(() => import("./app/clubs/ClubsPage").then((m) => ({ default: m.ClubsPage })));
+const ClubPage = lazy(() => import("./app/clubs/ClubPage").then((m) => ({ default: m.ClubPage })));
+const ConsolePage = lazy(() => import("./app/clubs/ConsolePage").then((m) => ({ default: m.ConsolePage })));
 // MVP 1 screens (and recharts).
 const WeightPage = lazy(() => import("./pages/WeightPage").then((m) => ({ default: m.WeightPage })));
 const WorkoutsPage = lazy(() => import("./pages/WorkoutsPage").then((m) => ({ default: m.WorkoutsPage })));
@@ -51,6 +55,7 @@ export default function App() {
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/welcome/photo" element={<WelcomePhotoPage />} />
+      <Route path="/join/:token" element={<JoinPage />} />
       <Route element={<AppLayout />}>
         <Route path="/today" element={<TodayPage />} />
         <Route path="/train" element={<TrainPage />} />
@@ -58,6 +63,9 @@ export default function App() {
         <Route path="/progress" element={<ProgressPage />} />
         <Route path="/session/:templateId" element={<SessionPage />} />
         <Route path="/checkin" element={<CheckinPage />} />
+        <Route path="/clubs" element={<ClubsPage />} />
+        <Route path="/clubs/:id" element={<ClubPage />} />
+        <Route path="/console" element={<ConsolePage />} />
         <Route path="/weight" element={<Legacy><WeightPage /></Legacy>} />
         <Route path="/workouts" element={<Legacy><WorkoutsPage /></Legacy>} />
         <Route path="/templates" element={<Legacy><TemplatesPage /></Legacy>} />

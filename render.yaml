@@ -38,6 +38,18 @@ services:
       # External cron sends this to POST /jobs/reminders (README, "Reminders").
       - key: CRON_SECRET
         sync: false
+      # Email (README, Deploying step 7). Set in the dashboard, not here, so a
+      # Blueprint sync never resets them. MAIL_PROVIDER: "resend", or "console"
+      # to only log. Unset means console.
       - key: MAIL_PROVIDER
-        value: console
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM # on the domain verified in Resend, e.g. TrackFit <hello@mail.your-domain>
+        sync: false
+      - key: MAIL_REPLY_TO # optional: an inbox you read, so replies reach you
+        sync: false
+      # "false" switches Clubs off everywhere. Unset means on.
+      - key: CLUBS_ENABLED
+        sync: false
       # Never set DEV_AUTH_BYPASS here.
