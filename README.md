@@ -217,7 +217,7 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 
 ## Clubs v1 (first release)
 
-**Status: approved November 2026. Steps 1 and 2 of the [build order](#build-order-within-v1) are built; steps 3 and 4 are not built yet.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
+**Status: approved November 2026. Steps 1 to 3 of the [build order](#build-order-within-v1) are built; step 4 (challenges) is not built yet.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
 
 ### In and out
 
@@ -449,7 +449,7 @@ Each step can go to testers on its own:
 
 1. **Console and clubs (built):** app roles, creating clubs, invites, join links and approval, club roles.
 2. **Feed (built):** posts, sharing after workouts and activities, media, comments and reactions, the coaches' Members page.
-3. **Club routines.**
+3. **Club routines (built).**
 4. **Challenges:** creating them, the pop-up, showing them in sessions, Fuel, water and the activity logger, proof, wins.
 
 **Step 1 as built**
@@ -480,6 +480,18 @@ Each step can go to testers on its own:
   - **Comment notifications.** The spec doesn't ask for them, so nobody is notified of comments or reactions yet.
   - **Editing a post's photo.** Edits change the text only; to change the photo, delete the post and post again.
   - **Video length** is measured on the device. The server enforces size, but it can't read a video's length cheaply.
+
+**Step 3 as built**
+
+- **API:** `routines.*` and `routine-schedule.ts` in `backend/src/modules/clubs/`, and `sql/012_club_routines.sql`.
+  - **Admins** create, edit and end routines. The 5-active limit is checked under the club row lock, and a routine can't switch between activity and workout once made.
+  - **Activity routines** have a type (such as running) and an optional minimum distance and minutes. They aren't stored as done: they're worked out from the member's activity log whenever they're shown, so deleting the run unticks the routine. A distance within 10 m of the bar counts, for watch rounding.
+  - **Workout routines** list catalogue exercises with sets and reps. Logging one creates a normal workout session ("Club routine: <name>" in its notes) and records it as done, once per person per day, for today or yesterday.
+  - **Streaks** count the routine's days in a row that were done. Today only counts once it's done, so an unfinished day never breaks a streak. Days before the routine started, or before the member joined, don't count.
+- **Web:**
+  - **Routines tab** on the club page, and the routine page at `/clubs/:id/routines/:routineId`. The page shows who did it: this week first, then the five before, with each person's streak.
+  - **Today** shows "Club routines today" for club members. "Log activity" opens the activity sheet already set to the routine's activity type; "Log it" opens the workout routine's exercises with optional weights and time.
+- **Not in this step:** reminders for routine days, and routines on the coaches' Members page.
 
 ### Approved defaults
 

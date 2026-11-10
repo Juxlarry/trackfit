@@ -35,12 +35,13 @@ export const ACT_TILES: [string, LucideIcon, string, string][] = [
 ];
 
 type Open =
-  | { t: "activity"; kind: string; date: string }
+  | { t: "activity"; kind: string; date: string; preset?: string }
   | { t: "weigh" } | { t: "reminder" } | { t: "audit" } | { t: "profile" } | { t: "swap" }
   | { t: "preview"; session: PlannedSessionDto; date: string };
 
 interface SheetsApi {
-  activity: (kind?: string, date?: string) => void;
+  /** preset: an activity type to start on, e.g. "RUN" from a club routine. */
+  activity: (kind?: string, date?: string, preset?: string) => void;
   weighIn: () => void;
   reminder: () => void;
   audit: () => void;
@@ -60,7 +61,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
   const guide = useGuide();
   const swapTo = (o: Open) => { if (open) { setOpen(null); window.setTimeout(() => setOpen(o), 220); } else setOpen(o); };
   const api = useMemo<SheetsApi>(() => ({
-    activity: (kind = "", date = localToday()) => swapTo({ t: "activity", kind, date }),
+    activity: (kind = "", date = localToday(), preset) => swapTo({ t: "activity", kind, date, preset }),
     weighIn: () => swapTo({ t: "weigh" }),
     reminder: () => swapTo({ t: "reminder" }),
     audit: () => swapTo({ t: "audit" }),
@@ -77,7 +78,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
     <Ctx.Provider value={api}>
       {children}
       <Sheet open={open?.t === "activity"} onClose={close} label="Add an activity">
-        {open?.t === "activity" && <ActivitySheet kind={open.kind} date={open.date} onPick={(k) => swapTo({ t: "activity", kind: k, date: open.date })} onDone={close} />}
+        {open?.t === "activity" && <ActivitySheet kind={open.kind} date={open.date} preset={open.preset} onPick={(k) => swapTo({ t: "activity", kind: k, date: open.date })} onDone={close} />}
       </Sheet>
       <Sheet open={open?.t === "weigh"} onClose={close} label="Log your weigh-in">{open?.t === "weigh" && <WeighInSheet onDone={close} />}</Sheet>
       <Sheet open={open?.t === "reminder"} onClose={close} label="Reminders">{open?.t === "reminder" && <ReminderSheet onDone={close} />}</Sheet>
@@ -96,7 +97,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
 
 // ── Activity ──────────────────────────────────────────────────────────────
 
-function ActivitySheet({ kind, date, onPick, onDone }: { kind: string; date: string; onPick: (k: string) => void; onDone: () => void }) {
+function ActivitySheet({ kind, date, preset, onPick, onDone }: { kind: string; date: string; preset?: string; onPick: (k: string) => void; onDone: () => void }) {
   if (!kind) {
     return (
       <>
@@ -112,7 +113,7 @@ function ActivitySheet({ kind, date, onPick, onDone }: { kind: string; date: str
     );
   }
   if (kind === "WARMUP" || kind === "MOBILITY" || kind === "ABS") return <RoutineSheet kind={kind} date={date} onDone={onDone} />;
-  return <CardioSheet kind={kind as "CARDIO" | "SPORT"} date={date} onDone={onDone} />;
+  return <CardioSheet kind={kind as "CARDIO" | "SPORT"} date={date} preset={preset} onDone={onDone} />;
 }
 
 function RoutineSheet({ kind, date, onDone }: { kind: "WARMUP" | "MOBILITY" | "ABS"; date: string; onDone: () => void }) {
@@ -136,13 +137,13 @@ function RoutineSheet({ kind, date, onDone }: { kind: "WARMUP" | "MOBILITY" | "A
   );
 }
 
-function CardioSheet({ kind, date, onDone }: { kind: "CARDIO" | "SPORT"; date: string; onDone: () => void }) {
+function CardioSheet({ kind, date, preset, onDone }: { kind: "CARDIO" | "SPORT"; date: string; preset?: string; onDone: () => void }) {
   const toast = useToast();
   const { plan } = usePlan();
   const weightKg = plan?.profile.startWeightKg ?? 75;
   const keys = Object.keys(ACTIVITY_TYPES).filter((k) => ACTIVITY_TYPES[k].kind === kind);
   const liked = (plan?.profile.cardioLikes ?? []).map((c) => CARDIO_LIKE_TO_TYPE[c]).filter((k) => k && keys.includes(k));
-  const [type, setType] = useState(liked[0] ?? keys[0]);
+  const [type, setType] = useState(preset && keys.includes(preset) ? preset : liked[0] ?? keys[0]);
   const [minutes, setMinutes] = useState(kind === "SPORT" ? "60" : "30");
   const [km, setKm] = useState("");
   const [kcal, setKcal] = useState("");

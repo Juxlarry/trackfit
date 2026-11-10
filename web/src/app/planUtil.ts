@@ -72,4 +72,4 @@ export const MUSCLES: Record<string, string[]> = {
 };
 export const musclesFor = (type: string) => [...(MUSCLES[type] ?? ["Full body"]), "Abs & core"];
 
-export const REFETCH_LOGS = ["SessionsBetween", "ActivityLogs", "WeightHistory", "LastSets"];
+export const REFETCH_LOGS = ["SessionsBetween", "ActivityLogs", "WeightHistory", "LastSets", "MyClubRoutines"];

@@ -51,3 +51,30 @@ export function personLabel(p: { isAdmin: boolean; isCoach: boolean; inClub: boo
 }
 
 export const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "?";
+
+// ── Club routines ───────────────────────────────────────────────────────
+
+const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_PLURAL = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+
+/** "Every day", "Weekdays", "Weekends", "Tuesdays", or "Tue, Thu". */
+export function routineDays(weekdays: number[]): string {
+  const d = [...weekdays].sort((a, b) => a - b).join(",");
+  if (d === "0,1,2,3,4,5,6") return "Every day";
+  if (d === "0,1,2,3,4") return "Weekdays";
+  if (d === "5,6") return "Weekends";
+  if (weekdays.length === 1) return DAY_PLURAL[weekdays[0]];
+  return [...weekdays].sort((a, b) => a - b).map((x) => DAY_SHORT[x]).join(", ");
+}
+
+/** What counts: "Running, at least 5 km" or "4 exercises, 11 sets". */
+export function routineRule(r: { kind: string; activityLabel: string | null; minDistanceKm: number | null; minMinutes: number | null; exercises: { sets: number }[] }, imperial: boolean): string {
+  if (r.kind === "WORKOUT") {
+    const sets = r.exercises.reduce((a, e) => a + e.sets, 0);
+    return `${r.exercises.length} exercise${r.exercises.length === 1 ? "" : "s"}, ${sets} sets`;
+  }
+  const parts = [r.activityLabel ?? "Any activity"];
+  if (r.minDistanceKm) parts.push(`at least ${distanceText(r.minDistanceKm, imperial)}`);
+  if (r.minMinutes) parts.push(`${minutesText(r.minMinutes)} or more`);
+  return parts.join(", ");
+}
