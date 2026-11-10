@@ -9,14 +9,15 @@ import {
 } from "./clubs.repository.js";
 import {
   CLUB_LIMITS, addAdminFromConsole, assertClubsOn, closeClubFromConsole, clubsEnabled, createClub, createJoinLink, declineInvite,
-  inviteMembers, invitesForMe, joinClub, joinPreview, joinUrl, leaveClub, removeMember, requireActiveMember, respondToJoinRequest,
+  inviteMembers, invitesForMe, joinClub, joinPreview, joinUrl, removeMember, requireActiveMember, respondToJoinRequest,
   revokeClubInvite, setMemberRoles, turnOffJoinLink,
 } from "./clubs.service.js";
+import { leaveClubWithPosts } from "./feed.service.js";
 
 /** A Club as the resolvers below see it: the row plus the caller's membership. */
 interface ClubParent extends ClubRow { viewer: MemberRow }
 
-async function loadClub(clubId: string, userId: string): Promise<ClubParent> {
+export async function loadClub(clubId: string, userId: string): Promise<ClubParent> {
   const { club, member } = await requireActiveMember(clubId, userId);
   return { ...club, viewer: member };
 }
@@ -31,7 +32,7 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 const member = (m: MemberRow, viewerId: string) => ({ ...m, requestedAt: m.requestedAt.toISOString(), joinedAt: iso(m.joinedAt), isMe: m.userId === viewerId });
 
 /** Every Clubs entry point: switched on, signed in. */
-function caller(ctx: GraphQLContext) {
+export function caller(ctx: GraphQLContext) {
   assertClubsOn();
   return requireUser(ctx);
 }
@@ -117,8 +118,8 @@ export const clubsResolvers = {
       await declineInvite(caller(ctx), verifiedEmail(ctx), id);
       return true;
     },
-    leaveClub: async (_p: unknown, { clubId }: { clubId: string }, ctx: Ctx) => {
-      await leaveClub(caller(ctx), clubId);
+    leaveClub: async (_p: unknown, a: { clubId: string; deleteMyPosts?: boolean | null }, ctx: Ctx) => {
+      await leaveClubWithPosts(caller(ctx), a.clubId, a.deleteMyPosts === true);
       return true;
     },
   },

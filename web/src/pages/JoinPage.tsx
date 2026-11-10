@@ -9,6 +9,7 @@ import type { JoinPreviewDto } from "../graphql/types";
 import { usePlan } from "../hooks/usePlan";
 import { clearPendingJoin, savePendingJoin } from "../lib/pendingJoin";
 import { useToast } from "../components/ui/Toast";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 /** Same frame as the sign-in page. */
 function Frame({ children }: { children: ReactNode }) {
@@ -42,7 +43,7 @@ export function JoinPage() {
     awaitRefetchQueries: true,
   });
 
-  if (!ready || q.loading || planLoading) return <p className="boot">Loading…</p>;
+  if (!ready || q.loading || planLoading) return <PulseLoader full />;
   if (q.error) return <Frame><h1 className="qh">Couldn't open this link.</h1><p className="qs">Check your connection, then refresh. ({q.error.message})</p></Frame>;
 
   const p = q.data?.joinPreview;

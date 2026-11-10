@@ -1,15 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, CircleAlert, Plus, ShieldCheck, UserPlus, Users, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Flag, Plus, ShieldCheck, UserPlus, Users, X } from "lucide-react";
 import {
-  ADD_APP_ADMIN, ADD_CLUB_ADMIN_FROM_CONSOLE, CLOSE_CLUB, CONSOLE, CREATE_CLUB, MY_CLUBS, MY_PLAN, REMOVE_APP_ADMIN,
+  ADD_APP_ADMIN, ADD_CLUB_ADMIN_FROM_CONSOLE, CLOSE_CLUB, CONSOLE, CONSOLE_REPORTS, CREATE_CLUB, MY_CLUBS, MY_PLAN, REMOVE_APP_ADMIN, RESOLVE_CLUB_REPORT,
 } from "../../graphql/operations";
-import type { AppStaffDto, ConsoleClubDto } from "../../graphql/types";
+import type { AppStaffDto, ConsoleClubDto, ConsoleReportDto } from "../../graphql/types";
+import { KIND_LABEL, timeAgo } from "../../lib/clubFormat";
 import { usePlan } from "../../hooks/usePlan";
 import { Sheet } from "../../components/ui/Sheet";
 import { useToast } from "../../components/ui/Toast";
 import { ViewHead } from "../AppLayout";
+import { PulseLoader } from "../../components/ui/PulseLoader";
 
 interface ConsoleData { consoleClubs: ConsoleClubDto[]; appStaff: AppStaffDto[] }
 const onDay = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -37,7 +39,7 @@ export function ConsolePage() {
           <CreateClub myEmail={me.email} />
           <section className="card fadein">
             <div className="card-h"><div><h3>Clubs</h3><p>{clubs.filter((c) => !c.closedAt).length} open</p></div></div>
-            {q.loading && !q.data ? <p className="help">Loading…</p> : clubs.length === 0 ? <p className="help">No clubs yet. Create the first one above.</p> : (
+            {q.loading && !q.data ? <PulseLoader small /> : clubs.length === 0 ? <p className="help">No clubs yet. Create the first one above.</p> : (
               <div className="list">
                 {clubs.map((c) => (
                   <div key={c.id} className="li" style={c.closedAt ? { opacity: 0.55 } : undefined}>
@@ -62,12 +64,13 @@ export function ConsolePage() {
           </section>
         </div>
         <div className="acol">
+          <Reports />
           <AppStaff staff={q.data?.appStaff ?? []} isOwner={me.appRole === "OWNER"} />
           <section className="tip fadein">
             <span className="ic"><ShieldCheck /></span>
             <div>
               <b>What the console can't see</b>
-              <p>Members' logs, posts and media stay inside each club. If you're also a member of a club, you see what your club role allows there, and nothing more.</p>
+              <p>Members' logs, posts and media stay inside each club. The one exception is a post or comment someone reports: it shows under Reports until you deal with it. If you're also a member of a club, you see what your club role allows there, and nothing more.</p>
             </div>
           </section>
         </div>
@@ -208,6 +211,42 @@ function AppStaff({ staff, isOwner }: { staff: AppStaffDto[]; isOwner: boolean }
             <p className="help">They need to have signed in to TrackFit once.</p>
           </div>
           <button type="button" className="ghost" style={{ justifySelf: "start" }} disabled={adding.loading || !email.trim()} onClick={() => void submit()}><UserPlus />Add</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Reports() {
+  const toast = useToast();
+  const q = useQuery<{ consoleReports: ConsoleReportDto[] }>(CONSOLE_REPORTS, { fetchPolicy: "cache-and-network" });
+  const [resolve, { loading }] = useMutation(RESOLVE_CLUB_REPORT, { refetchQueries: [{ query: CONSOLE_REPORTS }], awaitRefetchQueries: true });
+  const reports = q.data?.consoleReports ?? [];
+  // One row per reported post or comment; the rest are counted.
+  const items = reports.filter((r, i) => reports.findIndex((x) => x.item.postId === r.item.postId && x.item.commentId === r.item.commentId) === i);
+  const act = (r: ConsoleReportDto, remove: boolean) => {
+    resolve({ variables: { id: r.id, remove } }).then(() => toast(remove ? "Removed." : "Left up. The reports are closed."), (e: Error) => toast(e.message));
+  };
+  return (
+    <section className="card fadein">
+      <div className="card-h"><div><h3>Reports</h3><p>{items.length ? `${items.length} waiting` : "Nothing reported"}</p></div></div>
+      {q.loading && !q.data ? <PulseLoader small /> : items.length === 0 ? <p className="help">When someone reports a post or comment, it shows here and App staff get a notification.</p> : (
+        <div className="list">
+          {items.map((r) => (
+            <div key={r.id} className="li" style={{ gridTemplateColumns: "36px minmax(0,1fr)", alignItems: "start" }}>
+              <span className="ic"><Flag /></span>
+              <div>
+                <div className="t">{r.item.commentId ? "Comment" : KIND_LABEL[r.item.kind]} by {r.item.authorName} in {r.clubName}{r.item.deleted && <span className="tag">Already deleted</span>}</div>
+                <div className="d">“{r.reason}” · {r.reporterName}{r.reportCount > 1 ? ` and ${r.reportCount - 1} other${r.reportCount > 2 ? "s" : ""}` : ""} · {timeAgo(r.createdAt)}</div>
+                {r.item.body && <p className="report-body">{r.item.body}</p>}
+                {r.item.media && (r.item.media.kind === "VIDEO" ? <video className="post-media" src={r.item.media.url} controls playsInline preload="metadata" /> : <img className="post-media" src={r.item.media.url} alt="Reported" />)}
+                <div className="btnrow" style={{ marginTop: 10 }}>
+                  {!r.item.deleted && <button type="button" className="ghost" disabled={loading} onClick={() => act(r, true)}><X />Remove it</button>}
+                  <button type="button" className="linkbtn" disabled={loading} onClick={() => act(r, false)}>{r.item.deleted ? "Close report" : "Leave it up"}</button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </section>

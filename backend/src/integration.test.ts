@@ -15,6 +15,8 @@ const TEST_DB = process.env.TEST_DATABASE_URL;
 if (!TEST_DB) throw new Error("Set TEST_DATABASE_URL to run integration tests.");
 process.env.DATABASE_URL = TEST_DB;
 process.env.DEV_AUTH_BYPASS = "true";
+// Club media goes to a throwaway folder (MEDIA_STORE=local is the default with the dev bypass).
+process.env.MEDIA_DIR = (await import("node:fs")).mkdtempSync((await import("node:path")).join((await import("node:os")).tmpdir(), "trackfit-it-media-"));
 {
   const { default: webpush } = await import("web-push");
   const keys = webpush.generateVAPIDKeys();
@@ -43,6 +45,8 @@ const { findUserById } = await import("./modules/identity/identity.repository.js
 const { setPushSender } = await import("./modules/notifications/push.js");
 const { runReminderJob } = await import("./modules/notifications/reminders.js");
 const { WebPushError } = await import("web-push");
+const { LocalStore, getMediaStore } = await import("./shared/media/store.js");
+const { cleanUpStaleUploads } = await import("./modules/clubs/feed.service.js");
 const { addDaysIso, mondayOf, swapIssue, toIsoDate, weekTypes, weekdayOf } = await import("./modules/planning/engine/index.js");
 
 const mailer = new ConsoleMailer();
@@ -670,4 +674,256 @@ test("clubs: expired links, closed clubs and the off switch", async () => {
     delete process.env.CLUBS_ENABLED;
   }
   assert.equal((await gql(`{ myClubs { id } }`)).errors?.[0].extensions.code, "UNAUTHENTICATED");
+});
+
+// ── Clubs feed (build step 2) ───────────────────────────────────────────
+
+const POST = `id kind body hasPr weightChangeKg canEdit canDelete commentCount myReaction
+  author{ userId displayName isCoach isAdmin inClub isMe } media{ id kind url durationSeconds }
+  reactions{ reaction count } workout{ name setCount volumeKg exercises{ name sets{ reps weightKg } } prs{ exerciseName type weightKg reps } }
+  activity{ activityType label distanceKm durationMinutes }`;
+const FEED = `query($id:ID!,$f:ClubFeedFilter,$a:String,$l:Int){ club(id:$id){ feed(filter:$f, after:$a, limit:$l){ nextCursor posts{ ${POST} } } } }`;
+const CREATE_POST = `mutation($i:CreateClubPostInput!){ createClubPost(input:$i){ ${POST} } }`;
+const UPLOAD = `mutation($c:ID!,$p:ClubUploadPurpose!,$t:String!,$s:Int!,$d:Float){ requestClubUpload(clubId:$c, purpose:$p, contentType:$t, sizeBytes:$s, durationSeconds:$d){ mediaId url method headers{ name value } maxBytes } }`;
+const SHARE = `query($s:ID,$a:ID){ clubShareDraft(sessionId:$s, activityId:$a){ text clubs{ id name } } }`;
+
+const store = () => getMediaStore() as InstanceType<typeof LocalStore>;
+const tokenOf = (url: string) => url.slice(url.lastIndexOf("/") + 1);
+
+/** Requests an upload and PUTs the bytes, like the web app does. */
+async function upload(userId: string, club: string, purpose: string, contentType: string, bytes: number, seconds?: number): Promise<string> {
+  const u = (await ok(UPLOAD, { c: club, p: purpose, t: contentType, s: bytes, d: seconds ?? null }, userId)).requestClubUpload;
+  assert.equal(u.method, "PUT");
+  assert.equal(await store().put(tokenOf(u.url), contentType, Buffer.alloc(bytes, 7)), 200);
+  return u.mediaId;
+}
+
+/** A club with an Admin (Abena), a Coach (Kwame) and two members (Efua, Kojo). */
+let feedClub = "", abena = "", kwame = "", efua = "", kojo = "", outsider = "";
+let bench = "", squat = "", heavySession = "";
+
+test("feed setup: a fresh club, and a member's logs", async () => {
+  abena = await userWithEmail("Abena", "abena@example.com");
+  kwame = await userWithEmail("Kwame", "kwame@example.com");
+  efua = await userWithEmail("Efua", "efua@example.com");
+  kojo = await userWithEmail("Kojo", "kojo@example.com");
+  outsider = await userWithEmail("Outsider", "outsider@example.com");
+  mailer.sent.length = 0;
+  feedClub = (await ok(`mutation($i:CreateClubInput!){ createClub(input:$i){ id } }`, { i: { name: "Gym Friends", firstAdminEmail: "abena@example.com" } }, owner)).createClub.id;
+  await ok(JOIN, { t: tokenIn(lastMailTo("abena@example.com")!.text), c: true }, abena);
+  await ok(`mutation($c:ID!,$e:[String!]!){ inviteToClub(clubId:$c, emails:$e){ id } }`, { c: feedClub, e: ["kwame@example.com", "efua@example.com", "kojo@example.com"] }, abena);
+  for (const [id, email] of [[kwame, "kwame@example.com"], [efua, "efua@example.com"], [kojo, "kojo@example.com"]]) {
+    await ok(JOIN, { t: tokenIn(lastMailTo(email)!.text), c: true }, id);
+  }
+  await ok(ROLES, { c: feedClub, u: kwame, a: false, k: true }, abena);
+
+  // Efua has a plan (for "since Day 1"), a workout from before she joined, and two after.
+  await ok(ONBOARD, { i: { displayName: "Efua", screening: screeningClear, training, diet, startDate: today } }, efua);
+  const ex = (await ok(`{ exercises { id name } }`)).exercises;
+  bench = ex.find((e: any) => /bench press/i.test(e.name)).id;
+  squat = ex.find((e: any) => /squat/i.test(e.name)).id;
+  const LOG = `mutation($i:LogWorkoutSessionInput!){ logWorkoutSession(input:$i){ id } }`;
+  await ok(LOG, { i: { durationMinutes: 40, startedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), sets: [{ exerciseId: bench, setNumber: 1, reps: 5, weightKg: 60 }] } }, efua);
+  await ok(LOG, { i: { durationMinutes: 45, sets: [{ exerciseId: bench, setNumber: 1, reps: 5, weightKg: 70 }, { exerciseId: squat, setNumber: 1, reps: 5, weightKg: 90 }] } }, efua);
+  heavySession = (await ok(LOG, { i: { durationMinutes: 52, sets: [
+    { exerciseId: bench, setNumber: 1, reps: 5, weightKg: 80 }, { exerciseId: bench, setNumber: 2, reps: 5, weightKg: 75 },
+    { exerciseId: squat, setNumber: 1, reps: 5, weightKg: 85 },
+  ] } }, efua)).logWorkoutSession.id;
+  await ok(`mutation{ logWeight(input:{ weightKg: 79 }){ id } }`, {}, efua);
+});
+
+test("sharing a workout: drafted summary, one post per club, full workout for every member, private to the club", async () => {
+  const benchName = (await ok(`{ exercises { id name } }`)).exercises.find((e: any) => e.id === bench).name;
+  const draft = (await ok(SHARE, { s: heavySession }, efua)).clubShareDraft;
+  assert.equal(draft.text, `Workout done in 52 min: 2 exercises, 3 sets, 1,200 kg moved. New best: ${benchName} 80 kg × 5.`);
+  assert.deepEqual(draft.clubs, [{ id: feedClub, name: "Gym Friends" }]);
+  assert.equal((await gql(SHARE, { s: heavySession }, kojo)).errors?.[0].extensions.code, "NOT_FOUND", "only your own logs");
+
+  const posted = (await ok(CREATE_POST, { i: { clubIds: [feedClub], sessionId: heavySession, body: `${draft.text} 💪` } }, efua)).createClubPost[0];
+  assert.equal(posted.kind, "WORKOUT");
+  assert.equal(posted.hasPr, true);
+  assert.deepEqual(posted.workout.exercises.map((e: any) => e.sets.length).sort(), [1, 2]);
+  assert.deepEqual(posted.workout.exercises.find((e: any) => e.name === benchName).sets, [{ reps: 5, weightKg: 80 }, { reps: 5, weightKg: 75 }]);
+  assert.deepEqual(posted.workout.prs.slice(0, 1).map((p: any) => [p.type, p.weightKg, p.reps]), [["HEAVIEST_SET", 80, 5]]);
+  assert.equal((await gql(CREATE_POST, { i: { clubIds: [feedClub], sessionId: heavySession } }, efua)).errors?.[0].extensions.code, "BAD_USER_INPUT", "once per club");
+  assert.deepEqual((await ok(SHARE, { s: heavySession }, efua)).clubShareDraft.clubs, [], "no prompt once it's shared");
+  assert.equal((await gql(CREATE_POST, { i: { clubIds: [feedClub], sessionId: heavySession } }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+
+  const seen = (await ok(FEED, { id: feedClub }, kojo)).club.feed.posts[0];
+  assert.equal(seen.id, posted.id);
+  assert.deepEqual([seen.canEdit, seen.canDelete, seen.author.isMe, seen.author.displayName], [false, false, false, "Efua"]);
+  assert.equal(seen.workout.volumeKg, 1200);
+  assert.equal((await ok(`query($id:ID!){ clubPost(id:$id){ id } }`, { id: posted.id }, outsider)).clubPost, null, "outsiders can't open it");
+  assert.equal((await ok(FEED, { id: feedClub }, abena)).club.feed.posts[0].canDelete, true, "Admins can delete any post");
+});
+
+test("reactions, comments and coach video replies", async () => {
+  const postId = (await ok(FEED, { id: feedClub }, kojo)).club.feed.posts[0].id;
+  const REACT = `mutation($p:ID!,$r:ClubReaction){ reactToClubPost(postId:$p, reaction:$r){ myReaction reactions{ reaction count } } }`;
+  await ok(REACT, { p: postId, r: "FIRE" }, kojo);
+  const changed = (await ok(REACT, { p: postId, r: "HEART" }, kojo)).reactToClubPost;
+  assert.equal(changed.myReaction, "HEART", "one reaction each; tapping another changes it");
+  await ok(REACT, { p: postId, r: "FIRE" }, abena);
+  assert.deepEqual((await ok(REACT, { p: postId, r: "FIRE" }, kwame)).reactToClubPost.reactions, [{ reaction: "FIRE", count: 2 }, { reaction: "HEART", count: 1 }]);
+  assert.equal((await ok(REACT, { p: postId, r: null }, kwame)).reactToClubPost.myReaction, null);
+  assert.equal((await gql(REACT, { p: postId, r: "FIRE" }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+
+  const COMMENT = `mutation($p:ID!,$b:String,$m:ID){ commentOnClubPost(postId:$p, body:$b, mediaId:$m){ commentCount comments{ id body canDelete author{ displayName isCoach } media{ kind url } } } }`;
+  await ok(COMMENT, { p: postId, b: "  Strong!  " }, kojo);
+  assert.equal((await gql(COMMENT, { p: postId, b: "   " }, kojo)).errors?.[0].extensions.code, "BAD_USER_INPUT");
+  assert.equal((await gql(UPLOAD, { c: feedClub, p: "COMMENT", t: "video/mp4", s: 1000, d: 10 }, kojo)).errors?.[0].extensions.code, "FORBIDDEN", "only coaches reply with video");
+  const tooLong = await gql(UPLOAD, { c: feedClub, p: "COMMENT", t: "video/mp4", s: 1000, d: 45 }, kwame);
+  assert.match(tooLong.errors?.[0].message, /30 seconds/);
+  const clip = await upload(kwame, feedClub, "COMMENT", "video/mp4", 2048, 20);
+  const withVideo = (await ok(COMMENT, { p: postId, b: "Brace before you unrack", m: clip }, kwame)).commentOnClubPost;
+  assert.equal(withVideo.commentCount, 2);
+  const reply = withVideo.comments[1];
+  assert.deepEqual([reply.author.isCoach, reply.media.kind], [true, "VIDEO"]);
+  const served = await store().read(tokenOf(reply.media.url));
+  assert.equal(served?.body.length, 2048);
+  assert.equal(served?.contentType, "video/mp4");
+  assert.equal((await gql(COMMENT, { p: postId, m: clip }, kwame)).errors?.[0].extensions.code, "BAD_USER_INPUT", "an upload attaches once");
+
+  const DEL = `mutation($id:ID!){ deleteClubComment(id:$id){ commentCount } }`;
+  assert.equal((await gql(DEL, { id: reply.id }, kojo)).errors?.[0].extensions.code, "FORBIDDEN");
+  assert.equal((await ok(DEL, { id: reply.id }, kwame)).deleteClubComment.commentCount, 1);
+  const { rows } = await pool.query(`SELECT storage_path FROM clubs.media WHERE id = $1`, [clip]);
+  assert.equal(rows.length, 0, "the video reply's file goes with it");
+});
+
+test("posts with media: limits, progress with weight change, coach videos, filters, pages, edits and deletes", async () => {
+  // Upload limits.
+  assert.match((await gql(UPLOAD, { c: feedClub, p: "POST", t: "video/mp4", s: 1000, d: 45 }, efua)).errors?.[0].message, /30 seconds/);
+  assert.match((await gql(UPLOAD, { c: feedClub, p: "POST", t: "image/jpeg", s: 11 * 1048576 }, efua)).errors?.[0].message, /limit is 10 MB/);
+  assert.match((await gql(UPLOAD, { c: feedClub, p: "POST", t: "text/plain", s: 10 }, efua)).errors?.[0].message, /isn't supported/);
+  assert.equal((await gql(UPLOAD, { c: feedClub, p: "POST", t: "image/jpeg", s: 10 }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+  const big = (await ok(UPLOAD, { c: feedClub, p: "POST", t: "video/mp4", s: 1000, d: 45 }, kwame)).requestClubUpload;
+  assert.equal(big.maxBytes, 100 * 1048576, "coach videos can run to 60 seconds and 100 MB");
+  const tooBig = (await ok(UPLOAD, { c: feedClub, p: "POST", t: "image/png", s: 10 }, efua)).requestClubUpload;
+  assert.equal(await store().put(tokenOf(tooBig.url), "image/png", Buffer.alloc(11 * 1048576)), 413, "the upload link enforces the size too");
+  const never = (await ok(UPLOAD, { c: feedClub, p: "POST", t: "image/jpeg", s: 10 }, efua)).requestClubUpload.mediaId;
+  assert.match((await gql(CREATE_POST, { i: { clubIds: [feedClub], kind: "MEAL", body: "Waakye", mediaId: never } }, efua)).errors?.[0].message, /didn't finish/);
+
+  // Progress, with the change since Day 1 (81.2 kg in the quiz, 79 kg now).
+  const photo = await upload(efua, feedClub, "POST", "image/jpeg", 4096);
+  const progress = (await ok(CREATE_POST, { i: { clubIds: [feedClub], kind: "PROGRESS", body: "Two weeks in", mediaId: photo, includeWeightChange: true } }, efua)).createClubPost[0];
+  assert.deepEqual([progress.kind, progress.weightChangeKg, progress.media.kind], ["PROGRESS", -2.2, "IMAGE"]);
+  assert.equal((await gql(CREATE_POST, { i: { clubIds: [feedClub], kind: "PROGRESS", includeWeightChange: true, body: "x" } }, kojo)).errors?.[0].extensions.code, "BAD_USER_INPUT", "no weigh-in, no weight change");
+  assert.equal((await gql(CREATE_POST, { i: { clubIds: [feedClub], kind: "MEAL" } }, kojo)).errors?.[0].extensions.code, "BAD_USER_INPUT", "words or a photo");
+
+  // Coach videos: coaches only, and a video.
+  const memberClip = await upload(efua, feedClub, "POST", "video/mp4", 1024, 12);
+  assert.equal((await gql(CREATE_POST, { i: { clubIds: [feedClub], kind: "COACH_VIDEO", body: "Form tip", mediaId: memberClip } }, efua)).errors?.[0].extensions.code, "FORBIDDEN");
+  const coachClip = await upload(kwame, feedClub, "POST", "video/mp4", 1024, 55);
+  const coachPost = (await ok(CREATE_POST, { i: { clubIds: [feedClub], kind: "COACH_VIDEO", body: "Hip hinge, slow", mediaId: coachClip } }, kwame)).createClubPost[0];
+  assert.equal(coachPost.media.durationSeconds, 55);
+  const meal = (await ok(CREATE_POST, { i: { clubIds: [feedClub], kind: "MEAL", body: "Banku and tilapia" } }, kojo)).createClubPost[0];
+
+  // Filters and pages.
+  const kinds = async (f: string) => (await ok(FEED, { id: feedClub, f }, kojo)).club.feed.posts.map((p: any) => p.kind);
+  assert.deepEqual(await kinds("ALL"), ["MEAL", "COACH_VIDEO", "PROGRESS", "WORKOUT"]);
+  assert.deepEqual(await kinds("WINS"), ["PROGRESS", "WORKOUT"]);
+  assert.deepEqual(await kinds("COACH_VIDEOS"), ["COACH_VIDEO"]);
+  assert.deepEqual(await kinds("CHALLENGES"), []);
+  const p1 = (await ok(FEED, { id: feedClub, l: 3 }, kojo)).club.feed;
+  const p2 = (await ok(FEED, { id: feedClub, l: 3, a: p1.nextCursor }, kojo)).club.feed;
+  assert.deepEqual([p1.posts.length, p2.posts.length, p2.nextCursor], [3, 1, null]);
+  assert.equal(p2.posts[0].kind, "WORKOUT");
+
+  // Edits and deletes.
+  const EDIT = `mutation($id:ID!,$b:String!){ editClubPost(id:$id, body:$b){ body } }`;
+  assert.equal((await ok(EDIT, { id: meal.id, b: "Banku and tilapia, no regrets" }, kojo)).editClubPost.body, "Banku and tilapia, no regrets");
+  assert.equal((await gql(EDIT, { id: meal.id, b: "hacked" }, abena)).errors?.[0].extensions.code, "FORBIDDEN", "even Admins can't edit others' words");
+  const DELETE = `mutation($id:ID!){ deleteClubPost(id:$id) }`;
+  assert.equal((await gql(DELETE, { id: coachPost.id }, efua)).errors?.[0].extensions.code, "FORBIDDEN");
+  const path = (await pool.query(`SELECT storage_path FROM clubs.media WHERE id = $1`, [coachClip])).rows[0].storage_path;
+  assert.ok(await store().stat(path));
+  assert.equal((await ok(DELETE, { id: coachPost.id }, abena)).deleteClubPost, true);
+  assert.equal(await store().stat(path), null, "deleting a post deletes its file");
+  assert.deepEqual(await kinds("COACH_VIDEOS"), []);
+  assert.equal((await ok(`query($id:ID!){ clubPost(id:$id){ id } }`, { id: coachPost.id }, kwame)).clubPost, null);
+});
+
+test("activities: share prompt, run post, and the ask-to-share setting", async () => {
+  const RUN = `mutation($i:LogActivityInput!){ logActivity(input:$i){ id } }`;
+  const run = (await ok(RUN, { i: { performedOn: today, activityType: "RUN", durationMinutes: 28, distanceKm: 5.2 } }, efua)).logActivity.id;
+  const draft = (await ok(SHARE, { a: run }, efua)).clubShareDraft;
+  assert.equal(draft.text, "Ran 5.2 km in 28 min (5:23 /km).");
+  const post = (await ok(CREATE_POST, { i: { clubIds: [feedClub], activityId: run, body: draft.text } }, efua)).createClubPost[0];
+  assert.deepEqual([post.kind, post.activity.label, post.activity.distanceKm], ["RUN", "Running", 5.2]);
+
+  const SETTING = `mutation($c:ID!,$on:Boolean!){ setClubShareSetting(clubId:$c, askToShare:$on){ me{ askToShare } members{ userId askToShare } } }`;
+  const off = (await ok(SETTING, { c: feedClub, on: false }, efua)).setClubShareSetting;
+  assert.equal(off.me.askToShare, false);
+  assert.ok(off.members.every((m: any) => m.userId === efua || m.askToShare === null), "nobody sees anyone else's setting");
+  const walk = (await ok(RUN, { i: { performedOn: today, activityType: "WALK", durationMinutes: 30 } }, efua)).logActivity.id;
+  assert.deepEqual((await ok(SHARE, { a: walk }, efua)).clubShareDraft.clubs, [], "no prompt when asked not to");
+  await ok(SETTING, { c: feedClub, on: true }, efua);
+});
+
+test("coaches see members' workouts and activities since they joined, and only while both are in the club", async () => {
+  const OVERVIEW = `query($id:ID!){ club(id:$id){ coachOverview{ member{ userId displayName } workouts activities prs sessionsPerWeek lastWorkoutAt } } }`;
+  const overview = (await ok(OVERVIEW, { id: feedClub }, kwame)).club.coachOverview;
+  const e = overview.find((o: any) => o.member.userId === efua);
+  assert.deepEqual([e.workouts, e.activities], [2, 2], "the workout from before she joined isn't shown");
+  assert.ok(e.prs >= 2 && e.lastWorkoutAt);
+  assert.ok(!overview.some((o: any) => o.member.userId === kwame), "not themselves");
+  assert.deepEqual((await ok(OVERVIEW, { id: feedClub }, kojo)).club.coachOverview, [], "members don't get this");
+
+  const LOG = `query($c:ID!,$u:ID!){ clubMemberLog(clubId:$c, userId:$u){ member{ displayName } workouts{ id volumeKg prs{ type } } activities{ activityType } } }`;
+  const log = (await ok(LOG, { c: feedClub, u: efua }, kwame)).clubMemberLog;
+  assert.deepEqual([log.member.displayName, log.workouts.length, log.workouts[0].id], ["Efua", 2, heavySession]);
+  assert.deepEqual(log.activities.map((a: any) => a.activityType).sort(), ["RUN", "WALK"]);
+  assert.equal((await gql(LOG, { c: feedClub, u: efua }, kojo)).errors?.[0].extensions.code, "FORBIDDEN");
+  assert.equal((await gql(LOG, { c: feedClub, u: outsider }, kwame)).errors?.[0].extensions.code, "NOT_FOUND");
+
+  // Removed: the coach loses access at once, and her posts stay, marked as no longer in the club.
+  await ok(`mutation($c:ID!,$u:ID!){ removeClubMember(clubId:$c,userId:$u){ id } }`, { c: feedClub, u: efua }, abena);
+  assert.equal((await gql(LOG, { c: feedClub, u: efua }, kwame)).errors?.[0].extensions.code, "NOT_FOUND");
+  const hers = (await ok(FEED, { id: feedClub }, kojo)).club.feed.posts.filter((p: any) => p.author.userId === efua);
+  assert.ok(hers.length >= 3 && hers.every((p: any) => p.author.inClub === false));
+  assert.equal((await gql(SHARE, { s: heavySession }, efua)).errors, undefined);
+  assert.deepEqual((await ok(SHARE, { s: heavySession }, efua)).clubShareDraft.clubs, []);
+});
+
+test("reports reach the console, the club photo, leaving with your posts, and stale uploads", async () => {
+  const workoutPost = (await ok(FEED, { id: feedClub, f: "WINS" }, kojo)).club.feed.posts.find((p: any) => p.kind === "WORKOUT");
+  const REPORT = `mutation($p:ID!,$r:String!){ reportClubPost(postId:$p, reason:$r) }`;
+  await ok(REPORT, { p: workoutPost.id, r: "Spam" }, kojo);
+  await ok(REPORT, { p: workoutPost.id, r: "Spam again" }, kojo);
+  await ok(REPORT, { p: workoutPost.id, r: "Not okay" }, kwame);
+  assert.equal((await gql(REPORT, { p: workoutPost.id, r: "x" }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+  const REPORTS = `{ consoleReports { id clubName reason reporterName reportCount item{ postId kind authorName body deleted } } }`;
+  assert.equal((await gql(REPORTS, {}, abena)).errors?.[0].extensions.code, "FORBIDDEN", "club Admins aren't App staff");
+  const reports = (await ok(REPORTS, {}, staff)).consoleReports;
+  assert.deepEqual(reports.map((r: any) => [r.reporterName, r.reportCount]), [["Kojo", 2], ["Kwame", 2]], "one open report per person");
+  assert.deepEqual([reports[0].clubName, reports[0].item.kind, reports[0].item.authorName, reports[0].item.deleted], ["Gym Friends", "WORKOUT", "Efua", false]);
+  await ok(`mutation($id:ID!){ resolveClubReport(id:$id, remove:true) }`, { id: reports[0].id }, staff);
+  assert.deepEqual((await ok(REPORTS, {}, staff)).consoleReports, [], "both reports on that post close");
+  assert.ok(!(await ok(FEED, { id: feedClub }, kojo)).club.feed.posts.some((p: any) => p.id === workoutPost.id));
+
+  // Club photo: Admins only.
+  assert.equal((await gql(UPLOAD, { c: feedClub, p: "CLUB_PHOTO", t: "image/jpeg", s: 100 }, kojo)).errors?.[0].extensions.code, "FORBIDDEN");
+  const pic = await upload(abena, feedClub, "CLUB_PHOTO", "image/jpeg", 300);
+  const PHOTO = `mutation($c:ID!,$m:ID){ setClubPhoto(clubId:$c, mediaId:$m){ photoUrl } }`;
+  assert.ok((await ok(PHOTO, { c: feedClub, m: pic }, abena)).setClubPhoto.photoUrl);
+  assert.ok((await ok(`query($id:ID!){ club(id:$id){ photoUrl } }`, { id: feedClub }, kojo)).club.photoUrl);
+  assert.equal((await ok(PHOTO, { c: feedClub, m: null }, abena)).setClubPhoto.photoUrl, null);
+  assert.equal((await pool.query(`SELECT 1 FROM clubs.media WHERE id = $1`, [pic])).rows.length, 0, "the old photo is removed");
+
+  // Leaving with "delete my posts".
+  const LEAVE = `mutation($c:ID!,$d:Boolean){ leaveClub(clubId:$c, deleteMyPosts:$d) }`;
+  await ok(LEAVE, { c: feedClub, d: true }, kojo);
+  const left = (await ok(FEED, { id: feedClub }, abena)).club.feed.posts;
+  assert.ok(!left.some((p: any) => p.author.userId === kojo), "Kojo's posts went with him");
+  assert.ok(left.some((p: any) => p.author.userId === efua), "removed members' posts stay");
+  const before = (await ok(FEED, { id: feedClub }, abena)).club.feed.posts.length;
+  assert.match((await gql(LEAVE, { c: feedClub, d: true }, abena)).errors?.[0].message, /last Admin/);
+  assert.equal((await ok(FEED, { id: feedClub }, abena)).club.feed.posts.length, before, "a blocked leave deletes nothing");
+
+  // Uploads never attached are cleaned up after a day.
+  const stale = (await ok(UPLOAD, { c: feedClub, p: "POST", t: "image/jpeg", s: 10 }, abena)).requestClubUpload.mediaId;
+  await pool.query(`UPDATE clubs.media SET created_at = now() - interval '2 days' WHERE id = $1`, [stale]);
+  assert.ok((await cleanUpStaleUploads()) >= 1);
+  assert.equal((await pool.query(`SELECT 1 FROM clubs.media WHERE id = $1`, [stale])).rows.length, 0);
 });

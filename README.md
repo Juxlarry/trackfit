@@ -193,6 +193,12 @@ All free tiers, no card on file:
    - **Set the App Owner.** Sign in once to the live TrackFit web app with your own email; this creates your account. Then run `DATABASE_URL="<neon connection string>" npm run app:owner -- you@example.com` from `backend/`. Add App Admins later from the console (Clubs > Open the console). To hand over ownership, add `--replace`.
    - **Check.** Create a test club in the console with yourself as first Admin, then confirm the invite arrives. Resend's Emails page shows each send. A failed send never fails the action: it appears in Render's Logs as "Club email failed" or "Welcome email failed" with Resend's reason. A `403 domain is not verified` means `MAIL_FROM` isn't on the verified domain.
    - **Emergency stop.** Setting `CLUBS_ENABLED` to `false` in Render hides Clubs everywhere and rejects every Clubs request.
+8. **Club photos and videos.** They live in the same Firebase Storage bucket as progress photos, under `clubs/`, and are never public. The API hands out 15-minute upload links and 1-hour view links.
+   - **Render.** If the web app sets `VITE_FIREBASE_STORAGE_BUCKET`, set `FIREBASE_STORAGE_BUCKET` to the same value. Otherwise leave it unset: both default to `<project-id>.firebasestorage.app`. Projects made before late 2024 often use `<project-id>.appspot.com`; the Firebase console's Storage page shows the name. Don't set `MEDIA_STORE` on Render; it defaults to Firebase Storage.
+   - **Allow uploads from the web app, once.** From `backend/`, with the same Firebase values as Render in your `.env` (or on the command line), run `npm run media:cors`. It allows `APP_URL`; to allow other addresses, pass them instead, e.g. `npm run media:cors -- https://your-project.web.app https://your-domain`. Run it again if the web address changes.
+   - **Database.** `npm run db:migrate` against Neon adds `sql/011_club_feed.sql` (additive).
+   - **Storage rules don't change.** `web/storage.rules` gives browsers no access to `clubs/`, and the signed links don't go through rules.
+   - **Clean-up.** Uploads that were started but never posted are deleted after a day, by the API's hourly timer and by each cron wake-up.
 
 **Never set `DEV_AUTH_BYPASS` on Render, and never set `VITE_DEV_AUTH_BYPASS` to `"true"` for a deployed build.**
 
@@ -211,7 +217,7 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 
 ## Clubs v1 (first release)
 
-**Status: approved November 2026, nothing here is built yet.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
+**Status: approved November 2026. Steps 1 and 2 of the [build order](#build-order-within-v1) are built; steps 3 and 4 are not built yet.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
 
 ### In and out
 
@@ -442,7 +448,7 @@ Routines are set by Admins, recur, and are optional for members. Unlike challeng
 Each step can go to testers on its own:
 
 1. **Console and clubs (built):** app roles, creating clubs, invites, join links and approval, club roles.
-2. **Feed:** posts, sharing after workouts and activities, media, comments and reactions, the coaches' Members page.
+2. **Feed (built):** posts, sharing after workouts and activities, media, comments and reactions, the coaches' Members page.
 3. **Club routines.**
 4. **Challenges:** creating them, the pop-up, showing them in sessions, Fuel, water and the activity logger, proof, wins.
 
@@ -455,8 +461,25 @@ Each step can go to testers on its own:
   - Clubs pages are `/clubs`, `/clubs/:id` and `/console`, in `web/src/app/clubs/`. The Clubs tab shows only when `me.showClubs` is true.
   - Invite emails and join links open `/join/:token` (`web/src/pages/JoinPage.tsx`), which works signed out. A link opened before sign-in or the quiz is kept on the device (`web/src/lib/pendingJoin.ts`), and the app returns to it afterwards.
 - **Not yet:**
-  - **Club photo:** set at creation in the spec, but it needs the media storage that arrives with posts in step 2.
   - **Account deletion:** memberships use `ON DELETE RESTRICT`, so the delete-account flow, when it's built, has to hand over Admin first.
+
+**Step 2 as built**
+
+- **API:** `feed.*` and `share-draft.ts` in `backend/src/modules/clubs/`, `sql/011_club_feed.sql`, and the media store in `backend/src/shared/media/store.ts`.
+  - **Uploads** are two steps: `requestClubUpload` checks the type, size and video length and returns a signed link; the post, comment or club photo then claims the file, and the API checks it really arrived within the limits. Each upload can be attached once.
+  - **Limits:** photos 10 MB; member videos 30 s and 50 MB; coach video posts 60 s and 100 MB (the spec gave the length, not the size); coach video replies 30 s.
+  - **Posting to several clubs** copies the file into each club's folder.
+  - **Coaches' access** goes through one check, `requireCoachOf`. They see logs from the member's join date, and access ends when either one leaves. Clubs reads workouts and activities only through `tracking.service` functions.
+  - **Wins filter:** posts with a heaviest-set or estimated-1RM PR, progress posts, and challenge wins.
+  - **Reports** notify App staff by push and appear in the console, where staff remove the post or leave it up. Admins can delete any post or comment, but only authors can edit their own.
+- **Web:**
+  - The club page has three tabs. **Feed** has filters, New post and older pages. **Members** gives coaches each member's last four weeks and a link to their log at `/clubs/:id/members/:userId`. **Club** has the share setting, the club photo (Admins), and leaving, with the option to delete your posts.
+  - Posts open at `/clubs/:id/posts/:postId`, with the full workout, comments, and coach video replies.
+  - **The share prompt** appears in the "Workout done" sheet and after logging cardio or a sport (`web/src/app/clubs/ShareCard.tsx`). Warm-ups, mobility and abs finishers don't ask.
+- **Not in this step:**
+  - **Comment notifications.** The spec doesn't ask for them, so nobody is notified of comments or reactions yet.
+  - **Editing a post's photo.** Edits change the text only; to change the photo, delete the post and post again.
+  - **Video length** is measured on the device. The server enforces size, but it can't read a video's length cheaply.
 
 ### Approved defaults
 

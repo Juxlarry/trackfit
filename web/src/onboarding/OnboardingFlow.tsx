@@ -11,6 +11,7 @@ import { firstName, sampleDraft, toTraining, type Draft } from "./draft";
 import { useOnboarding, useSubmitPlan } from "./OnboardingProvider";
 import { BuildLoader, PlanReveal, SignUp, StartDateBody } from "./screens";
 import { STAGES, STEPS, kgFmt, type Step, type StepCtx } from "./steps";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 const reduce = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const indexOf = (id: string) => STEPS.findIndex((s) => s.id === id);
@@ -183,7 +184,7 @@ export function OnboardingFlow() {
 
   if (!step) return <Navigate to="/start/welcome" replace />;
   // A returning user with a plan goes straight into the app, unless they chose to start again.
-  if (step.id === "welcome" && (!authReady || (signedIn && planLoading))) return <p className="boot">Loading…</p>;
+  if (step.id === "welcome" && (!authReady || (signedIn && planLoading))) return <PulseLoader full />;
   if (step.id === "welcome" && signedIn && plan && !params.has("redo")) return <Navigate to="/today" replace />;
   // Deep links past the questions need a finished draft.
   if (["build", "plan", "start", "signup"].includes(step.id) && !d.support) return <Navigate to="/start/welcome" replace />;

@@ -3,7 +3,17 @@ import { assertIsoDate, badInput } from "../../shared/errors.js";
 import { ACTIVITY_TYPES, estimateActivityKcal, type Effort } from "../planning/engine/index.js";
 import { getIntake } from "../planning/planning.repository.js";
 import {
+  findTemplateName,
+  getActivityLog,
+  getWorkoutSession,
   insertActivityLog,
+  listActivityLogsSince,
+  listMilestonesForSession,
+  listSetsWithExercise,
+  listWorkoutSessionsSince,
+  type ActivityLogRow,
+  type MilestoneType,
+  type WorkoutSessionRow,
   insertWeightEntry,
   listWeightHistory,
   templateBelongsToUser,
@@ -108,4 +118,71 @@ export async function logActivity(input: LogActivityInput) {
   });
   eventBus.publish({ type: "ActivityLogged", userId: input.userId, activityLogId: row.id, kind: row.kind, durationMinutes: row.durationMinutes, kcal: row.kcal ?? 0 });
   return row;
+}
+
+// ── Reads for Clubs ─────────────────────────────────────────────────────
+// Clubs reads logs only through these (README "Clubs v1", technical outline).
+
+export interface WorkoutPr {
+  exerciseName: string;
+  type: MilestoneType;
+  /** The set behind the record. For ESTIMATED_1RM, value is the estimate. */
+  weightKg: number;
+  reps: number;
+  value: number;
+}
+
+export interface WorkoutDetail {
+  id: string;
+  userId: string;
+  name: string;
+  startedAt: Date;
+  durationMinutes: number | null;
+  setCount: number;
+  volumeKg: number;
+  exercises: { name: string; sets: { reps: number; weightKg: number }[] }[];
+  prs: WorkoutPr[];
+}
+
+export async function getWorkoutDetail(sessionId: string): Promise<WorkoutDetail | null> {
+  const session = await getWorkoutSession(sessionId);
+  return session ? workoutDetail(session) : null;
+}
+
+export async function listWorkoutDetailsSince(userId: string, since: Date, limit: number): Promise<WorkoutDetail[]> {
+  return Promise.all((await listWorkoutSessionsSince(userId, since, limit)).map(workoutDetail));
+}
+
+async function workoutDetail(s: WorkoutSessionRow): Promise<WorkoutDetail> {
+  const [sets, milestones, name] = await Promise.all([
+    listSetsWithExercise(s.id), listMilestonesForSession(s.id), s.templateId ? findTemplateName(s.templateId) : Promise.resolve(null),
+  ]);
+  const exercises: WorkoutDetail["exercises"] = [];
+  for (const set of sets) {
+    let ex = exercises.find((e) => e.name === set.exerciseName);
+    if (!ex) exercises.push((ex = { name: set.exerciseName, sets: [] }));
+    ex.sets.push({ reps: set.reps, weightKg: set.weightKg });
+  }
+  const prs = milestones.map((m): WorkoutPr => {
+    const mine = sets.filter((x) => x.exerciseId === m.exerciseId);
+    // The set that set the record: the heaviest one, or the best estimate (Epley, as in milestone detection).
+    const best = m.type === "ESTIMATED_1RM"
+      ? mine.reduce((a, b) => (b.weightKg * (1 + b.reps / 30) > a.weightKg * (1 + a.reps / 30) ? b : a), mine[0])
+      : mine.filter((x) => x.weightKg === Math.max(...mine.map((y) => y.weightKg))).reduce((a, b) => (b.reps > a.reps ? b : a), mine[0]);
+    return { exerciseName: mine[0]?.exerciseName ?? "", type: m.type, weightKg: best?.weightKg ?? m.value, reps: best?.reps ?? 0, value: m.value };
+  });
+  return {
+    id: s.id, userId: s.userId, name: name ?? "Workout", startedAt: s.startedAt, durationMinutes: s.durationMinutes,
+    setCount: sets.length, volumeKg: Math.round(sets.reduce((a, x) => a + x.weightKg * x.reps, 0)), exercises, prs,
+  };
+}
+
+export { getActivityLog, listActivityLogsSince, type ActivityLogRow };
+
+/** Change from the Day 1 weight (the quiz answer) to the latest weigh-in, or null without one. */
+export async function weightChangeSinceStart(userId: string): Promise<number | null> {
+  const [latest] = await listWeightHistory(userId, 1);
+  const start = (await getIntake(userId))?.training.weightKg;
+  if (!latest || start == null) return null;
+  return Math.round((latest.weightKg - start) * 10) / 10;
 }

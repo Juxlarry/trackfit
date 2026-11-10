@@ -13,6 +13,7 @@ import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, dayShort, localToday } from "../
 import { ViewHead } from "./AppLayout";
 import { SLOT_LABEL, weekDates } from "./planUtil";
 import { FoodSheet } from "./FoodSheet";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 const DIET_LABEL: Record<string, string> = { OMNIVORE: "Eats everything", HALAL: "Halal", PESCATARIAN: "Pescatarian", VEGETARIAN: "Vegetarian", VEGAN: "Vegan", OTHER: "Custom" };
 const fmt = (n: number) => n.toLocaleString("en-GB");
@@ -75,7 +76,7 @@ export function FuelPage() {
               <div><h3>{isT ? "Today's menu" : `Menu for ${DAYS_LONG[day]}`}</h3><p>Built from your favourites, scaled to {fmt(t.kcal)} kcal</p></div>
               {canLog && m && <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Log food</button>}
             </div>
-            {!m && <p className="help">{q.error ? q.error.message : "Loading your menu…"}</p>}
+            {!m && (q.error ? <p className="help">{q.error.message}</p> : <PulseLoader small label="Loading your menu" />)}
             {m?.items.map((it) => (
               <div key={it.slotIndex} className={`meal-card${it.eaten ? " eaten" : ""}${it.skipped ? " skipped" : ""}`}>
                 <button type="button" className={`eat${it.eaten ? " on" : ""}`} aria-pressed={it.eaten} aria-label={`Mark ${it.name} as eaten`} onClick={() => void toggle(it)}><Check /></button>
@@ -233,7 +234,7 @@ function SwapSheet({ date, item, kcal, onDone }: { date: string; item: MealItemD
       <p className="sh-k">Swap {SLOT_LABEL[item.slot].toLowerCase()}</p>
       <h3>Pick something else</h3>
       <p>Portions are rescaled so your day still adds up to {fmt(kcal)} kcal.</p>
-      {q.loading && <p className="help">Loading options…</p>}
+      {q.loading && <PulseLoader small label="Loading options" />}
       <div className="opts">
         {options.map((o) => (
           <button key={o.key} type="button" className={`opt noico${picked === o.key ? " on" : ""}`} disabled={!!picked} onClick={() => void choose(o.key, o.name)}>

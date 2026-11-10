@@ -5,6 +5,7 @@ import {
   LOG_WORKOUT_SESSION,
   WORKOUT_HISTORY,
 } from "../graphql/operations";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 interface Exercise {
   id: string;
@@ -238,7 +239,7 @@ export function WorkoutsPage() {
 
       <div className="card">
         <h2>History</h2>
-        {historyLoading && !historyData && <p className="empty-state">Loading…</p>}
+        {historyLoading && !historyData && <PulseLoader small />}
         {!historyLoading && history.length === 0 && (
           <p className="empty-state">No workouts logged yet.</p>
         )}

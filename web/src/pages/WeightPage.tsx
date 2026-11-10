@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { LOG_WEIGHT, WEIGHT_HISTORY } from "../graphql/operations";
 import { WeightChart } from "../components/WeightChart";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 interface WeightHistoryData {
   weightHistory: { id: string; weightKg: number; bodyFatPercent: number | null; recordedAt: string }[];
@@ -83,7 +84,7 @@ export function WeightPage() {
 
       <div className="card">
         <h2>History</h2>
-        {loading && !data && <p className="empty-state">Loading…</p>}
+        {loading && !data && <PulseLoader small />}
         {!loading && entries.length === 0 && (
           <p className="empty-state">No weigh-ins yet.</p>
         )}

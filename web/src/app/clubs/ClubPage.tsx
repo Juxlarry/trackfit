@@ -1,16 +1,21 @@
-import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, Check, Copy, Link2, LogOut, Mail, MessageSquare, Send, Settings2, UserMinus, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Camera, Check, Copy, Link2, LogOut, Mail, MessageSquare, Plus, Send, Settings2, UserMinus, UserPlus, Users } from "lucide-react";
 import {
-  CLUB, CREATE_JOIN_LINK, INVITE_TO_CLUB, LEAVE_CLUB, MY_CLUBS, MY_PLAN, REMOVE_CLUB_MEMBER, RESPOND_TO_JOIN_REQUEST, REVOKE_CLUB_INVITE,
+  CLUB, CLUB_COACH_OVERVIEW, CLUB_FEED, CREATE_JOIN_LINK, INVITE_TO_CLUB, SET_CLUB_PHOTO, SET_CLUB_SHARE_SETTING, LEAVE_CLUB, MY_CLUBS, MY_PLAN, REMOVE_CLUB_MEMBER, RESPOND_TO_JOIN_REQUEST, REVOKE_CLUB_INVITE,
   SET_CLUB_MEMBER_ROLES, TURN_OFF_JOIN_LINK,
 } from "../../graphql/operations";
-import type { ClubDto, ClubMemberDto } from "../../graphql/types";
-import { OptionList } from "../../components/ui/Options";
+import type { ClubDto, ClubFeedFilter, ClubMemberDto, ClubMemberOverviewDto, ClubPostDto } from "../../graphql/types";
+import { checkClubFile, useClubUpload } from "../../lib/clubMedia";
+import { timeAgo } from "../../lib/clubFormat";
+import { Composer } from "./Composer";
+import { PostCard } from "./PostBits";
+import { ChipGroup, OptionList } from "../../components/ui/Options";
 import { Sheet } from "../../components/ui/Sheet";
 import { useToast } from "../../components/ui/Toast";
 import { ViewHead } from "../AppLayout";
+import { PulseLoader } from "../../components/ui/PulseLoader";
 
 const roleText = (m: { isAdmin: boolean; isCoach: boolean }) =>
   m.isAdmin && m.isCoach ? "Admin and Coach" : m.isAdmin ? "Admin" : m.isCoach ? "Coach" : "Member";
@@ -22,11 +27,11 @@ const onDay = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: 
 /** Emails typed or pasted with commas, spaces or new lines between them. */
 const splitEmails = (raw: string) => raw.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean);
 
-/** /clubs/:id. Everyone sees the members; Admins also run invites, join links and requests. */
+/** /clubs/:id: the feed, the members (with coaches' view) and the club settings. Admins also run invites, join links and requests. */
 export function ClubPage() {
   const { id = "" } = useParams();
   const q = useQuery<{ club: ClubDto | null }>(CLUB, { variables: { id }, fetchPolicy: "cache-and-network" });
-  if (q.loading && !q.data) return <p className="boot">Loading…</p>;
+  if (q.loading && !q.data) return <PulseLoader label="Loading the club" />;
   const club = q.data?.club;
   if (!club) {
     return (
@@ -39,75 +44,214 @@ export function ClubPage() {
   return <ClubView club={club} />;
 }
 
-function ClubView({ club }: { club: ClubDto }) {
-  const toast = useToast();
-  const navigate = useNavigate();
-  const [manage, setManage] = useState<ClubMemberDto | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  const admin = club.me.isAdmin;
-  const adminCount = club.members.filter((m) => m.isAdmin).length;
-  const [leave, leaveState] = useMutation(LEAVE_CLUB, { refetchQueries: [{ query: MY_CLUBS }, { query: MY_PLAN }], awaitRefetchQueries: true });
+type Tab = "feed" | "members" | "club";
+const TABS: { id: Tab; label: string }[] = [{ id: "feed", label: "Feed" }, { id: "members", label: "Members" }, { id: "club", label: "Club" }];
 
-  const doLeave = async () => {
-    try {
-      await leave({ variables: { clubId: club.id } });
-      toast(`You left ${club.name}.`);
-      navigate("/clubs", { replace: true });
-    } catch (e) { setLeaving(false); toast(e instanceof Error ? e.message : "Couldn't leave. Try again."); }
-  };
+function ClubView({ club }: { club: ClubDto }) {
+  const [params, setParams] = useSearchParams();
+  const tab = (TABS.some((t) => t.id === params.get("tab")) ? params.get("tab") : "feed") as Tab;
+  const setTab = (t: Tab) => setParams(t === "feed" ? {} : { tab: t }, { replace: true });
+  const [manage, setManage] = useState<ClubMemberDto | null>(null);
 
   return (
     <div className="view-in">
       <Link className="back-link" to="/clubs"><ArrowLeft />Back to Clubs</Link>
-      <ViewHead kicker={YOU_ARE[roleText(club.me)]} title={club.name} />
-      {club.description && <p className="qs" style={{ marginTop: -12, marginBottom: 22 }}>{club.description}</p>}
-      <div className="agrid">
-        <div className="acol">
-          <section className="card fadein">
-            <div className="card-h"><div><h3>Club feed</h3><p>Coming in the next update</p></div></div>
-            <div className="empty"><MessageSquare /><span>Posts after workouts and runs, coach videos, challenges and club routines will show here. For now, this page is for getting everyone in and setting roles.</span></div>
-          </section>
-          <section className="card fadein">
-            <div className="card-h">
-              <div><h3>Members</h3><p>{club.members.length} of {club.limits.maxMembers} · {adminCount} of {club.limits.maxAdmins} Admins</p></div>
-            </div>
-            <div className="list">
-              {club.members.map((m) => (
-                <div key={m.userId} className="li">
-                  <span className="ic"><Users /></span>
-                  <div>
-                    <div className="t">{m.displayName}{m.isMe && <span className="tag">You</span>}</div>
-                    <div className="d">{roleText(m)}{m.joinedAt ? ` · joined ${onDay(m.joinedAt)}` : ""}</div>
-                  </div>
-                  {admin && <button type="button" className="linkbtn" aria-label={`Manage ${m.displayName}`} onClick={() => setManage(m)}><Settings2 />Manage</button>}
-                </div>
-              ))}
-            </div>
-            <p className="help" style={{ marginTop: 12 }}>Coaches see every member's logged workouts and activities. Food, water, weight and photos stay private.</p>
-          </section>
-        </div>
-
-        <div className="acol">
-          {admin && <JoinRequests club={club} />}
-          {admin && <InvitePeople club={club} />}
-          {admin && <JoinLinks club={club} />}
-          <section className="card fadein">
-            <div className="card-h"><div><h3>Leave club</h3><p>Coaches stop seeing your logs straight away.</p></div></div>
-            <button type="button" className="ghost" onClick={() => setLeaving(true)}><LogOut />Leave {club.name}</button>
-          </section>
-        </div>
+      <div className="club-head">
+        {club.photoUrl ? <img className="club-photo" src={club.photoUrl} alt="" /> : <span className="club-photo none" aria-hidden="true"><Users /></span>}
+        <ViewHead kicker={YOU_ARE[roleText(club.me)]} title={club.name} />
       </div>
+      {club.description && <p className="qs" style={{ marginTop: -12, marginBottom: 18 }}>{club.description}</p>}
+      <div className="seg club-tabs" role="tablist" aria-label="Club sections">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
+            {t.label}{t.id === "members" && club.me.isAdmin && club.joinRequests.length > 0 && <span className="dot" aria-label={`${club.joinRequests.length} waiting`} />}
+          </button>
+        ))}
+      </div>
+
+      {tab === "feed" && <Feed club={club} />}
+      {tab === "members" && <MembersTab club={club} onManage={setManage} />}
+      {tab === "club" && <ClubTab club={club} />}
 
       <Sheet open={!!manage} onClose={() => setManage(null)} label="Manage member">
         {manage && <ManageMember club={club} member={manage} onDone={() => setManage(null)} />}
       </Sheet>
+    </div>
+  );
+}
+
+const FILTERS: { value: ClubFeedFilter; label: string }[] = [
+  { value: "ALL", label: "All" }, { value: "WINS", label: "Wins" }, { value: "COACH_VIDEOS", label: "Coach videos" }, { value: "CHALLENGES", label: "Challenges" },
+];
+
+function Feed({ club }: { club: ClubDto }) {
+  const [filter, setFilter] = useState<ClubFeedFilter>("ALL");
+  const [composing, setComposing] = useState(false);
+  const q = useQuery<{ club: { id: string; feed: { nextCursor: string | null; posts: ClubPostDto[] } } | null }>(CLUB_FEED, {
+    variables: { id: club.id, filter }, fetchPolicy: "cache-and-network", notifyOnNetworkStatusChange: true,
+  });
+  const feed = q.data?.club?.feed;
+  const more = () => q.fetchMore({
+    variables: { after: feed?.nextCursor },
+    updateQuery: (prev, { fetchMoreResult }) => {
+      if (!prev.club || !fetchMoreResult?.club) return prev;
+      const seen = new Set(prev.club.feed.posts.map((p) => p.id));
+      return { club: { ...prev.club, feed: { nextCursor: fetchMoreResult.club.feed.nextCursor, posts: [...prev.club.feed.posts, ...fetchMoreResult.club.feed.posts.filter((p) => !seen.has(p.id))] } } };
+    },
+  });
+  return (
+    <div className="feed">
+      <div className="feed-top">
+        <ChipGroup label="Show" options={FILTERS} selected={[filter]} onPick={setFilter} />
+        <button type="button" className="cta small-cta" onClick={() => setComposing(true)}>New post<Plus /></button>
+      </div>
+      {!feed ? <PulseLoader label="Loading the feed" /> : feed.posts.length === 0 ? (
+        <section className="card"><div className="empty"><MessageSquare /><span>{filter === "ALL"
+          ? "Nothing here yet. Finish a workout or log a run and you'll be asked if you want to share it, or tap New post."
+          : filter === "CHALLENGES" ? "Challenge wins will show here once coaches start setting challenges." : "Nothing in this view yet."}</span></div></section>
+      ) : (
+        <>
+          {feed.posts.map((p) => <PostCard key={p.id} post={p} clubName={club.name} />)}
+          {feed.nextCursor && (
+            <button type="button" className="ghost" style={{ alignSelf: "center" }} disabled={q.loading} onClick={() => void more()}>
+              {q.loading ? <PulseLoader small label="Loading more" /> : "Show older posts"}
+            </button>
+          )}
+        </>
+      )}
+      <Sheet open={composing} onClose={() => setComposing(false)} label="New post">
+        {composing && <Composer clubs={[{ id: club.id, name: club.name }]} isCoach={club.me.isCoach} limits={club.feedLimits} onDone={() => setComposing(false)} />}
+      </Sheet>
+    </div>
+  );
+}
+
+function MembersTab({ club, onManage }: { club: ClubDto; onManage: (m: ClubMemberDto) => void }) {
+  const admin = club.me.isAdmin;
+  const coach = club.me.isCoach;
+  const adminCount = club.members.filter((m) => m.isAdmin).length;
+  const ov = useQuery<{ club: { id: string; coachOverview: ClubMemberOverviewDto[] } | null }>(CLUB_COACH_OVERVIEW, { variables: { id: club.id }, skip: !coach, fetchPolicy: "cache-and-network" });
+  const stats = new Map((ov.data?.club?.coachOverview ?? []).map((o) => [o.member.userId, o]));
+  return (
+    <div className="agrid">
+      <div className="acol">
+        {admin && <JoinRequests club={club} />}
+        <section className="card fadein">
+          <div className="card-h">
+            <div><h3>Members</h3><p>{club.members.length} of {club.limits.maxMembers} · {adminCount} of {club.limits.maxAdmins} Admins</p></div>
+          </div>
+          {coach && ov.loading && !ov.data && <PulseLoader small label="Loading members' weeks" />}
+          <div className="list">
+            {club.members.map((m) => {
+              const o = stats.get(m.userId);
+              const row = (
+                <>
+                  <span className="ic"><Users /></span>
+                  <div>
+                    <div className="t">{m.displayName}{m.isMe && <span className="tag">You</span>}</div>
+                    <div className="d">
+                      {roleText(m)}{m.joinedAt ? ` · joined ${onDay(m.joinedAt)}` : ""}
+                      {o && <><br />{o.sessionsPerWeek} workout{o.sessionsPerWeek === 1 ? "" : "s"} a week · {o.activities} activit{o.activities === 1 ? "y" : "ies"}{o.prs ? ` · ${o.prs} PR${o.prs === 1 ? "" : "s"}` : ""} · last workout {o.lastWorkoutAt ? timeAgo(o.lastWorkoutAt) : "none yet"}</>}
+                    </div>
+                  </div>
+                </>
+              );
+              return (
+                <div key={m.userId} className="li">
+                  {o ? <Link to={`/clubs/${club.id}/members/${m.userId}`} className="li-link">{row}</Link> : <span className="li-link">{row}</span>}
+                  {admin && <button type="button" className="linkbtn" aria-label={`Manage ${m.displayName}`} onClick={() => onManage(m)}><Settings2 />Manage</button>}
+                </div>
+              );
+            })}
+          </div>
+          <p className="help" style={{ marginTop: 12 }}>
+            {coach ? "As a coach you see each member's workouts and activities from the day they joined. Tap someone for their full log. Food, water, weight and photos stay private." : "Coaches see every member's logged workouts and activities. Food, water, weight and photos stay private unless you post them."}
+          </p>
+        </section>
+      </div>
+      <div className="acol">
+        {admin && <InvitePeople club={club} />}
+        {admin && <JoinLinks club={club} />}
+      </div>
+    </div>
+  );
+}
+
+function ClubTab({ club }: { club: ClubDto }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [leaving, setLeaving] = useState(false);
+  const [deleteMine, setDeleteMine] = useState(false);
+  const [setShare, sharing] = useMutation(SET_CLUB_SHARE_SETTING);
+  const [leave, leaveState] = useMutation(LEAVE_CLUB, { refetchQueries: [{ query: MY_CLUBS }, { query: MY_PLAN }], awaitRefetchQueries: true });
+  const doLeave = async () => {
+    try {
+      await leave({ variables: { clubId: club.id, deleteMyPosts: deleteMine } });
+      toast(`You left ${club.name}.`);
+      navigate("/clubs", { replace: true });
+    } catch (e) { setLeaving(false); toast(e instanceof Error ? e.message : "Couldn't leave. Try again."); }
+  };
+  const ask = club.me.askToShare !== false;
+  return (
+    <div className="agrid">
+      <div className="acol">
+        <section className="card fadein">
+          <div className="card-h"><div><h3>Sharing</h3><p>Nothing is posted unless you tap Post.</p></div></div>
+          <OptionList<"on">
+            multi
+            label="Sharing"
+            selected={ask ? ["on"] : []}
+            onPick={() => { setShare({ variables: { clubId: club.id, askToShare: !ask } }).then(() => toast(ask ? "You won't be asked to share here." : "You'll be asked to share after workouts."), (e: Error) => toast(e.message)); }}
+            options={[{ value: "on", label: "Ask me to share after workouts", desc: `After a workout or run, offer a drafted post for ${club.name}.`, disabled: sharing.loading }]}
+          />
+        </section>
+        {club.me.isAdmin && <ClubPhoto club={club} />}
+      </div>
+      <div className="acol">
+        <section className="card fadein">
+          <div className="card-h"><div><h3>Leave club</h3><p>Coaches stop seeing your logs straight away.</p></div></div>
+          <button type="button" className="ghost" onClick={() => setLeaving(true)}><LogOut />Leave {club.name}</button>
+        </section>
+      </div>
       <Sheet open={leaving} onClose={() => setLeaving(false)} label="Leave club">
         <p className="sh-k">{club.name}</p>
         <h3>Leave this club?</h3>
         <p>You'll need a new invite or join link to come back. Your own logs and plan aren't affected.</p>
-        <button type="button" className="cta" disabled={leaveState.loading} onClick={() => void doLeave()}>Leave the club<LogOut /></button>
+        <OptionList<"del"> multi label="Your posts" selected={deleteMine ? ["del"] : []} onPick={() => setDeleteMine(!deleteMine)}
+          options={[{ value: "del", label: "Also delete my posts", desc: "Otherwise they stay in the feed, marked as from someone who left." }]} />
+        <button type="button" className="cta" style={{ marginTop: 14 }} disabled={leaveState.loading} onClick={() => void doLeave()}>Leave the club<LogOut /></button>
       </Sheet>
     </div>
+  );
+}
+
+function ClubPhoto({ club }: { club: ClubDto }) {
+  const toast = useToast();
+  const upload = useClubUpload();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [setPhoto] = useMutation(SET_CLUB_PHOTO);
+  const pick = async (f: File | undefined) => {
+    if (!f) return;
+    const checked = await checkClubFile(f, "CLUB_PHOTO", club.feedLimits, club.me.isCoach);
+    if ("error" in checked) { toast(checked.error); return; }
+    setBusy(true);
+    try {
+      const mediaId = await upload(club.id, "CLUB_PHOTO", checked);
+      await setPhoto({ variables: { clubId: club.id, mediaId } });
+      toast("Club photo updated.");
+    } catch (e) { toast(e instanceof Error ? e.message : "Couldn't change the photo. Try again."); }
+    finally { setBusy(false); if (input.current) input.current.value = ""; }
+  };
+  return (
+    <section className="card fadein">
+      <div className="card-h"><div><h3>Club photo</h3><p>Shown at the top of the club. Only members see it.</p></div></div>
+      <input ref={input} type="file" accept="image/*" hidden onChange={(e) => void pick(e.target.files?.[0])} />
+      <div className="btnrow">
+        <button type="button" className="ghost" disabled={busy} onClick={() => input.current?.click()}>{busy ? <PulseLoader small label="Uploading" /> : <><Camera />{club.photoUrl ? "Change photo" : "Add a photo"}</>}</button>
+        {club.photoUrl && !busy && <button type="button" className="linkbtn" onClick={() => { setPhoto({ variables: { clubId: club.id, mediaId: null } }).then(() => toast("Photo removed."), (e: Error) => toast(e.message)); }}>Remove</button>}
+      </div>
+    </section>
   );
 }
 

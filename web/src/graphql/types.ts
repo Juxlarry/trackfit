@@ -214,12 +214,14 @@ export interface ClubDto {
   id: string;
   name: string;
   description: string | null;
-  me: { userId: string; isAdmin: boolean; isCoach: boolean };
+  photoUrl: string | null;
+  me: { userId: string; isAdmin: boolean; isCoach: boolean; askToShare: boolean | null };
   members: ClubMemberDto[];
   joinRequests: { userId: string; displayName: string; requestedAt: string }[];
   invites: { id: string; email: string; asAdmin: boolean; createdAt: string }[];
   joinLinks: { id: string; url: string; expiresAt: string; maxUses: number; uses: number }[];
   limits: { maxAdmins: number; maxMembers: number; maxLinkUses: number; linkDays: number };
+  feedLimits: ClubFeedLimitsDto;
 }
 
 export interface MyClubsData {
@@ -255,4 +257,85 @@ export interface AppStaffDto {
   email: string | null;
   role: AppRole;
   grantedAt: string;
+}
+
+// ── Clubs feed ──────────────────────────────────────────────────────────
+
+export type ClubPostKind = "WORKOUT" | "RUN" | "CYCLE" | "ACTIVITY" | "PROGRESS" | "MEAL" | "CHALLENGE_WIN" | "COACH_VIDEO";
+export type ClubReaction = "FIRE" | "STRONG" | "CLAP" | "HEART";
+export type ClubFeedFilter = "ALL" | "WINS" | "COACH_VIDEOS" | "CHALLENGES";
+
+export interface ClubFeedLimitsDto {
+  imageMb: number; videoMb: number; videoSeconds: number; coachVideoMb: number; coachVideoSeconds: number; postChars: number; commentChars: number;
+}
+
+export interface ClubPersonDto { userId: string; displayName: string; isAdmin: boolean; isCoach: boolean; inClub: boolean; isMe: boolean }
+export interface ClubMediaDto { id: string; kind: "IMAGE" | "VIDEO"; url: string; durationSeconds: number | null }
+
+export interface ClubWorkoutDto {
+  id: string;
+  name: string;
+  startedAt: string;
+  durationMinutes: number | null;
+  setCount: number;
+  volumeKg: number;
+  exercises: { name: string; sets: { reps: number; weightKg: number }[] }[];
+  prs: { exerciseName: string; type: "HEAVIEST_SET" | "ESTIMATED_1RM" | "MOST_REPS_AT_WEIGHT"; weightKg: number; reps: number; value: number }[];
+}
+
+export interface ClubActivityDto {
+  id: string;
+  activityType: string;
+  label: string;
+  performedOn: string;
+  durationMinutes: number;
+  distanceKm: number | null;
+  avgHeartRate: number | null;
+  effort: "EASY" | "MODERATE" | "HARD" | null;
+  kcal: number | null;
+}
+
+export interface ClubCommentDto { id: string; body: string; createdAt: string; canDelete: boolean; author: ClubPersonDto; media: ClubMediaDto | null }
+
+export interface ClubPostDto {
+  id: string;
+  clubId: string;
+  kind: ClubPostKind;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  hasPr: boolean;
+  weightChangeKg: number | null;
+  canEdit: boolean;
+  canDelete: boolean;
+  commentCount: number;
+  myReaction: ClubReaction | null;
+  author: ClubPersonDto;
+  media: ClubMediaDto | null;
+  workout: ClubWorkoutDto | null;
+  activity: ClubActivityDto | null;
+  reactions: { reaction: ClubReaction; count: number }[];
+  comments?: ClubCommentDto[];
+}
+
+export interface ClubShareDraftDto { text: string; clubs: { id: string; name: string }[] }
+
+export interface ClubMemberOverviewDto {
+  member: { userId: string; displayName: string; isAdmin: boolean; isCoach: boolean; joinedAt: string | null };
+  sessionsPerWeek: number;
+  workouts: number;
+  activities: number;
+  prs: number;
+  lastWorkoutAt: string | null;
+  lastActivityOn: string | null;
+}
+
+export interface ConsoleReportDto {
+  id: string;
+  clubName: string;
+  reason: string;
+  createdAt: string;
+  reporterName: string;
+  reportCount: number;
+  item: { postId: string; commentId: string | null; kind: ClubPostKind; authorName: string; body: string; createdAt: string; deleted: boolean; media: { id: string; kind: "IMAGE" | "VIDEO"; url: string } | null };
 }

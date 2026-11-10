@@ -50,7 +50,7 @@ export function maskEmail(email: string): string {
   return `${name[0]}•••@${domain}`;
 }
 
-async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

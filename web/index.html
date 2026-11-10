@@ -15,9 +15,19 @@
     <meta name="apple-mobile-web-app-title" content="TrackFit" />
     <meta name="application-name" content="TrackFit" />
     <title>TrackFit</title>
+    <style>
+      /* Shown until the app starts; React replaces #root's contents. Mirrors .pulse in global.css. */
+      html,body{margin:0;background:#F6F4EE}
+      @media (prefers-color-scheme:dark){html,body{background:#0F1A15}}
+      .boot-splash{min-height:100vh;min-height:100dvh;display:grid;place-items:center}
+      .boot-splash span{width:72px;height:72px;border-radius:21px;background:#C8F25A;display:grid;place-items:center;animation:boot-beat 1.25s ease-in-out infinite}
+      @keyframes boot-beat{0%{transform:scale(1)}14%{transform:scale(1.2)}28%{transform:scale(1)}42%{transform:scale(1.12)}64%,100%{transform:scale(1)}}
+      @keyframes boot-breathe{50%{opacity:.5}}
+      @media (prefers-reduced-motion:reduce){.boot-splash span{animation:boot-breathe 2.2s ease-in-out infinite}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-splash" role="status" aria-label="Loading TrackFit"><span><svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#12261E" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></span></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

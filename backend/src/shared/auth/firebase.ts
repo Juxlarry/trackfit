@@ -32,6 +32,12 @@ function ensureInitialized() {
   initialized = true;
 }
 
+/** The initialised Admin SDK, for other Firebase services (Storage for club media). */
+export function firebaseAdmin(): typeof admin {
+  ensureInitialized();
+  return admin;
+}
+
 export interface VerifiedFirebaseUser {
   firebaseUid: string;
   phoneNumber?: string;

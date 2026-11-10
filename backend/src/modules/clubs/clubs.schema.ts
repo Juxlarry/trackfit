@@ -162,7 +162,7 @@ export const clubsTypeDefs = /* GraphQL */ `
     "Accept an invite or use a join link. consent must be true: coaches will see the workouts and activities you log."
     joinClub(token: String!, consent: Boolean!): JoinResult!
     declineClubInvite(id: ID!): Boolean!
-    "Leave, or withdraw a request that's still waiting. The last Admin can't leave."
-    leaveClub(clubId: ID!): Boolean!
+    "Leave, or withdraw a request that's still waiting. The last Admin can't leave. deleteMyPosts also deletes your posts there."
+    leaveClub(clubId: ID!, deleteMyPosts: Boolean = false): Boolean!
   }
 `;

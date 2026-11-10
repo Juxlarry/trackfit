@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Camera, CircleAlert, Columns2, HeartPulse, Loader, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
+import { Activity, ArrowRight, Camera, CircleAlert, Columns2, HeartPulse, Lock, Plus, Trash2, TrendingUp } from "lucide-react";
 import { addDaysIso, daysBetween, mondayOf } from "@engine";
 import { ACTIVITY_LOGS, LAST_SETS, MY_CYCLES, SESSIONS_BETWEEN, SYNC_PROGRESS_PHOTOS, WEIGHT_HISTORY } from "../graphql/operations";
 import type { ActivePlanDto, ActivityDto, CycleSpanDto, SessionSummaryDto } from "../graphql/types";
@@ -192,7 +192,7 @@ function Photos({ plan, today, weights }: { plan: ActivePlanDto; today: string; 
           const open = unlock <= today;
           const pick = () => { if (uploading) return; setSlot(label); input.current?.click(); };
           if (uploading === label || (loading && open)) {
-            return <div key={label} className="ph open" aria-busy="true"><Loader style={{ animation: "spin 1s linear infinite" }} /><b>{label}</b>{uploading === label ? "Uploading…" : "Loading…"}</div>;
+            return <div key={label} className="ph open" aria-busy="true"><span className="pulse-mark" aria-hidden="true"><Activity /></span><b>{label}</b>{uploading === label ? "Uploading…" : <span className="sr-only">Loading</span>}</div>;
           }
           if (m) {
             return (

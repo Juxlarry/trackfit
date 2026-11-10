@@ -12,6 +12,7 @@ import { useToast } from "../components/ui/Toast";
 import { dayLabel, localToday } from "../lib/dates";
 import { ViewHead } from "./AppLayout";
 import { REFETCH_LOGS } from "./planUtil";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 /**
  * Week-6 check-in (backend planning/checkin.service.ts, rules in
@@ -41,7 +42,7 @@ export function CheckinPage() {
   const c = q.data?.cycleCheckin;
   if (!plan) return null;
   if (q.error) return <p className="boot">Couldn't load your check-in. Check your connection and try again.</p>;
-  if (!c) return <p className="boot">Loading your 6 weeks…</p>;
+  if (!c) return <PulseLoader label="Loading your 6 weeks" />;
   if (!c.open) return <Navigate to="/today" replace />;
   return <Flow c={c} today={today} onWeighed={() => void q.refetch()} />;
 }

@@ -5,6 +5,7 @@ import {
   EXERCISES,
   WORKOUT_TEMPLATES,
 } from "../graphql/operations";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 interface Exercise {
   id: string;
@@ -182,7 +183,7 @@ export function TemplatesPage() {
 
       <div className="card">
         <h2>Your templates</h2>
-        {loading && !data && <p className="empty-state">Loading…</p>}
+        {loading && !data && <PulseLoader small />}
         {error && <p className="empty-state">{error.message}</p>}
         {!loading && templates.length === 0 && (
           <p className="empty-state">No templates yet.</p>

@@ -22,6 +22,7 @@ import { useToast } from "../components/ui/Toast";
 import { DAYS_LONG, dayLabel, dayShort, localToday } from "../lib/dates";
 import { useInstall } from "../lib/pwa";
 import { disablePushHere, enablePush, pushStatus, type PushStatus } from "../lib/push";
+import { ShareCard } from "./clubs/ShareCard";
 import { REFETCH_LOGS, readFlags, sessionOn, sessionsByDate, swapsFor, weekDates, writeFlags } from "./planUtil";
 
 export const ACT_ICON: Record<string, LucideIcon> = {
@@ -147,23 +148,38 @@ function CardioSheet({ kind, date, onDone }: { kind: "CARDIO" | "SPORT"; date: s
   const [kcal, setKcal] = useState("");
   const [hr, setHr] = useState("");
   const [effort, setEffort] = useState<Effort>("MODERATE");
-  const [log, { loading }] = useMutation(LOG_ACTIVITY, { refetchQueries: REFETCH_LOGS });
+  const [log, { loading }] = useMutation<{ logActivity: { id: string } }>(LOG_ACTIVITY, { refetchQueries: REFETCH_LOGS });
+  const { me } = usePlan();
+  const [saved, setSaved] = useState<{ id: string; text: string } | null>(null);
   const meta = ACTIVITY_TYPES[type];
   const est = estimateActivityKcal(type, Number(minutes) || 0, weightKg, effort);
   const save = async () => {
     const m = Math.round(Number(minutes));
     if (!m || m < 1) { toast("Add how many minutes it took."); return; }
     try {
-      await log({ variables: { input: {
+      const res = await log({ variables: { input: {
         performedOn: date, activityType: type, durationMinutes: m, effort,
         distanceKm: meta.distance && Number(km) > 0 ? Number(km) : null,
         kcal: Number(kcal) > 0 ? Math.round(Number(kcal)) : null,
         avgHeartRate: Number(hr) > 0 ? Math.round(Number(hr)) : null,
       } } });
-      toast(`${meta.label} logged: ${m} min, ${(Number(kcal) || est).toLocaleString("en-GB")} kcal.`);
-      onDone();
+      const text = `${meta.label} logged: ${m} min, ${(Number(kcal) || est).toLocaleString("en-GB")} kcal.`;
+      const id = res.data?.logActivity.id;
+      // Club members get the share prompt here; everyone else is done.
+      if (id && me?.showClubs) setSaved({ id, text });
+      else { toast(text); onDone(); }
     } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that. Try again."); }
   };
+  if (saved) {
+    return (
+      <>
+        <div className="burst"><Check /></div>
+        <h3 style={{ marginTop: 16 }}>{saved.text}</h3>
+        <ShareCard link={{ activityId: saved.id }} />
+        <button type="button" className="cta" style={{ marginTop: 16 }} onClick={onDone}>Done</button>
+      </>
+    );
+  }
   return (
     <>
       <p className="sh-k">{dayLabel(date)}</p>

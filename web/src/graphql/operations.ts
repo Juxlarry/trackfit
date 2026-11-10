@@ -417,13 +417,14 @@ export const COMPLETE_CHECKIN = gql`
 
 export const CLUB_FIELDS = gql`
   fragment ClubFields on Club {
-    id name description
-    me { userId isAdmin isCoach }
+    id name description photoUrl
+    me { userId isAdmin isCoach askToShare }
     members { userId displayName isAdmin isCoach isMe joinedAt }
     joinRequests { userId displayName requestedAt }
     invites { id email asAdmin createdAt }
     joinLinks { id url expiresAt maxUses uses }
     limits { maxAdmins maxMembers maxLinkUses linkDays }
+    feedLimits { imageMb videoMb videoSeconds coachVideoMb coachVideoSeconds postChars commentChars }
   }
 `;
 
@@ -454,7 +455,7 @@ export const DECLINE_CLUB_INVITE = gql`
 `;
 
 export const LEAVE_CLUB = gql`
-  mutation LeaveClub($clubId: ID!) { leaveClub(clubId: $clubId) }
+  mutation LeaveClub($clubId: ID!, $deleteMyPosts: Boolean) { leaveClub(clubId: $clubId, deleteMyPosts: $deleteMyPosts) }
 `;
 
 export const INVITE_TO_CLUB = gql`
@@ -531,4 +532,139 @@ export const ADD_APP_ADMIN = gql`
 
 export const REMOVE_APP_ADMIN = gql`
   mutation RemoveAppAdmin($userId: ID!) { removeAppAdmin(userId: $userId) { userId displayName email role grantedAt } }
+`;
+
+// ── Clubs feed ──────────────────────────────────────────────────────────
+
+export const CLUB_PERSON_FIELDS = gql`
+  fragment ClubPersonFields on ClubPerson { userId displayName isAdmin isCoach inClub isMe }
+`;
+
+export const CLUB_WORKOUT_FIELDS = gql`
+  fragment ClubWorkoutFields on ClubWorkout {
+    id name startedAt durationMinutes setCount volumeKg
+    exercises { name sets { reps weightKg } }
+    prs { exerciseName type weightKg reps value }
+  }
+`;
+
+export const CLUB_ACTIVITY_FIELDS = gql`
+  fragment ClubActivityFields on ClubActivity { id activityType label performedOn durationMinutes distanceKm avgHeartRate effort kcal }
+`;
+
+export const CLUB_POST_FIELDS = gql`
+  fragment ClubPostFields on ClubPost {
+    id clubId kind body createdAt editedAt hasPr weightChangeKg canEdit canDelete commentCount myReaction
+    author { ...ClubPersonFields }
+    media { id kind url durationSeconds }
+    workout { ...ClubWorkoutFields }
+    activity { ...ClubActivityFields }
+    reactions { reaction count }
+  }
+  ${CLUB_PERSON_FIELDS}
+  ${CLUB_WORKOUT_FIELDS}
+  ${CLUB_ACTIVITY_FIELDS}
+`;
+
+export const CLUB_FEED = gql`
+  query ClubFeed($id: ID!, $filter: ClubFeedFilter, $after: String) {
+    club(id: $id) { id feed(filter: $filter, after: $after, limit: 20) { nextCursor posts { ...ClubPostFields } } }
+  }
+  ${CLUB_POST_FIELDS}
+`;
+
+export const CLUB_COMMENT_FIELDS = gql`
+  fragment ClubCommentFields on ClubComment { id body createdAt canDelete author { ...ClubPersonFields } media { id kind url durationSeconds } }
+  ${CLUB_PERSON_FIELDS}
+`;
+
+export const CLUB_POST = gql`
+  query ClubPost($id: ID!) { clubPost(id: $id) { ...ClubPostFields comments { ...ClubCommentFields } } }
+  ${CLUB_POST_FIELDS}
+  ${CLUB_COMMENT_FIELDS}
+`;
+
+export const REQUEST_CLUB_UPLOAD = gql`
+  mutation RequestClubUpload($clubId: ID!, $purpose: ClubUploadPurpose!, $contentType: String!, $sizeBytes: Int!, $durationSeconds: Float) {
+    requestClubUpload(clubId: $clubId, purpose: $purpose, contentType: $contentType, sizeBytes: $sizeBytes, durationSeconds: $durationSeconds) {
+      mediaId url method headers { name value } maxBytes
+    }
+  }
+`;
+
+export const CREATE_CLUB_POST = gql`
+  mutation CreateClubPost($input: CreateClubPostInput!) { createClubPost(input: $input) { ...ClubPostFields } }
+  ${CLUB_POST_FIELDS}
+`;
+
+export const EDIT_CLUB_POST = gql`
+  mutation EditClubPost($id: ID!, $body: String!) { editClubPost(id: $id, body: $body) { id body editedAt } }
+`;
+
+export const DELETE_CLUB_POST = gql`
+  mutation DeleteClubPost($id: ID!) { deleteClubPost(id: $id) }
+`;
+
+export const REACT_TO_CLUB_POST = gql`
+  mutation ReactToClubPost($postId: ID!, $reaction: ClubReaction) {
+    reactToClubPost(postId: $postId, reaction: $reaction) { id myReaction reactions { reaction count } }
+  }
+`;
+
+export const COMMENT_ON_CLUB_POST = gql`
+  mutation CommentOnClubPost($postId: ID!, $body: String, $mediaId: ID) {
+    commentOnClubPost(postId: $postId, body: $body, mediaId: $mediaId) { id commentCount comments { ...ClubCommentFields } }
+  }
+  ${CLUB_COMMENT_FIELDS}
+`;
+
+export const DELETE_CLUB_COMMENT = gql`
+  mutation DeleteClubComment($id: ID!) { deleteClubComment(id: $id) { id commentCount comments { ...ClubCommentFields } } }
+  ${CLUB_COMMENT_FIELDS}
+`;
+
+export const REPORT_CLUB_POST = gql`
+  mutation ReportClubPost($postId: ID!, $commentId: ID, $reason: String!) { reportClubPost(postId: $postId, commentId: $commentId, reason: $reason) }
+`;
+
+export const SET_CLUB_SHARE_SETTING = gql`
+  mutation SetClubShareSetting($clubId: ID!, $askToShare: Boolean!) { setClubShareSetting(clubId: $clubId, askToShare: $askToShare) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const SET_CLUB_PHOTO = gql`
+  mutation SetClubPhoto($clubId: ID!, $mediaId: ID) { setClubPhoto(clubId: $clubId, mediaId: $mediaId) { ...ClubFields } }
+  ${CLUB_FIELDS}
+`;
+
+export const CLUB_SHARE_DRAFT = gql`
+  query ClubShareDraft($sessionId: ID, $activityId: ID) { clubShareDraft(sessionId: $sessionId, activityId: $activityId) { text clubs { id name } } }
+`;
+
+export const CLUB_COACH_OVERVIEW = gql`
+  query ClubCoachOverview($id: ID!) {
+    club(id: $id) { id coachOverview { member { userId displayName isAdmin isCoach joinedAt } sessionsPerWeek workouts activities prs lastWorkoutAt lastActivityOn } }
+  }
+`;
+
+export const CLUB_MEMBER_LOG = gql`
+  query ClubMemberLog($clubId: ID!, $userId: ID!) {
+    clubMemberLog(clubId: $clubId, userId: $userId) {
+      member { userId displayName joinedAt }
+      workouts { ...ClubWorkoutFields }
+      activities { ...ClubActivityFields }
+    }
+  }
+  ${CLUB_WORKOUT_FIELDS}
+  ${CLUB_ACTIVITY_FIELDS}
+`;
+
+export const CONSOLE_REPORTS = gql`
+  query ConsoleReports {
+    consoleReports { id clubName reason createdAt reporterName reportCount item { postId commentId kind authorName body createdAt deleted media { id kind url } } }
+  }
+`;
+
+export const RESOLVE_CLUB_REPORT = gql`
+  mutation ResolveClubReport($id: ID!, $remove: Boolean!) { resolveClubReport(id: $id, remove: $remove) }
 `;

@@ -5,6 +5,7 @@ import { useAuth } from "./auth/AuthContext";
 import { usePlan } from "./hooks/usePlan";
 import { AppLayout } from "./app/AppLayout";
 import { SignInPage } from "./pages/SignInPage";
+import { PulseLoader } from "./components/ui/PulseLoader";
 
 // Each area downloads when first opened: returning users never load the
 // onboarding quiz, and new users don't load the app until their plan exists.
@@ -20,6 +21,8 @@ const SessionPage = lazy(() => import("./app/SessionPage").then((m) => ({ defaul
 const JoinPage = lazy(() => import("./pages/JoinPage").then((m) => ({ default: m.JoinPage })));
 const ClubsPage = lazy(() => import("./app/clubs/ClubsPage").then((m) => ({ default: m.ClubsPage })));
 const ClubPage = lazy(() => import("./app/clubs/ClubPage").then((m) => ({ default: m.ClubPage })));
+const PostPage = lazy(() => import("./app/clubs/PostPage").then((m) => ({ default: m.PostPage })));
+const MemberLogPage = lazy(() => import("./app/clubs/MemberLogPage").then((m) => ({ default: m.MemberLogPage })));
 const ConsolePage = lazy(() => import("./app/clubs/ConsolePage").then((m) => ({ default: m.ConsolePage })));
 // MVP 1 screens (and recharts).
 const WeightPage = lazy(() => import("./pages/WeightPage").then((m) => ({ default: m.WeightPage })));
@@ -30,7 +33,7 @@ const TemplatesPage = lazy(() => import("./pages/TemplatesPage").then((m) => ({ 
 function Home() {
   const { ready } = useAuth();
   const { signedIn, loading, plan } = usePlan();
-  if (!ready || loading) return <p className="boot">Loading…</p>;
+  if (!ready || loading) return <PulseLoader full />;
   if (!signedIn) return <Navigate to="/start/welcome" replace />;
   return <Navigate to={plan ? "/today" : "/start/welcome"} replace />;
 }
@@ -47,7 +50,7 @@ function Legacy({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <Suspense fallback={<p className="boot">Loading…</p>}>
+    <Suspense fallback={<PulseLoader full />}>
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/start" element={<Navigate to="/start/welcome" replace />} />
@@ -65,6 +68,8 @@ export default function App() {
         <Route path="/checkin" element={<CheckinPage />} />
         <Route path="/clubs" element={<ClubsPage />} />
         <Route path="/clubs/:id" element={<ClubPage />} />
+        <Route path="/clubs/:id/posts/:postId" element={<PostPage />} />
+        <Route path="/clubs/:id/members/:userId" element={<MemberLogPage />} />
         <Route path="/console" element={<ConsolePage />} />
         <Route path="/weight" element={<Legacy><WeightPage /></Legacy>} />
         <Route path="/workouts" element={<Legacy><WorkoutsPage /></Legacy>} />

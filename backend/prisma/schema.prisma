@@ -627,11 +627,15 @@ model Club {
   createdBy   String?
   createdAt   DateTime  @default(now())
   closedAt    DateTime?
+  photoMediaId String?
 
   memberships ClubMembership[]
   invites     ClubInvite[]
   joinLinks   ClubJoinLink[]
   events      ClubMembershipEvent[]
+  media       ClubMedia[]
+  posts       ClubPost[]
+  reports     ClubReport[]
 
   @@schema("clubs")
   @@map("clubs")
@@ -649,6 +653,8 @@ model ClubMembership {
   requestedAt DateTime  @default(now())
   joinedAt    DateTime?
   updatedAt   DateTime  @default(now())
+  /// "Ask me to share after workouts" for this club.
+  askToShare  Boolean   @default(true)
 
   club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -710,4 +716,103 @@ model ClubMembershipEvent {
   @@index([clubId, at])
   @@schema("clubs")
   @@map("membership_events")
+}
+
+// ── Clubs feed (sql/011_club_feed.sql) ──────────────────────────────────
+
+/// A club photo or video. The file is in Firebase Storage at storagePath and
+/// is only reachable through short-lived links from the API.
+model ClubMedia {
+  id              String   @id @default(uuid())
+  clubId          String
+  uploaderId      String
+  purpose         String   // POST | COMMENT | CLUB_PHOTO
+  kind            String   // IMAGE | VIDEO
+  contentType     String
+  sizeBytes       Int
+  durationSeconds Decimal? @db.Decimal(6, 2)
+  storagePath     String   @unique
+  status          String   @default("PENDING") // PENDING | READY
+  createdAt       DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@schema("clubs")
+  @@map("media")
+}
+
+model ClubPost {
+  id             String    @id @default(uuid())
+  clubId         String
+  authorId       String
+  kind           String    // WORKOUT | RUN | CYCLE | ACTIVITY | PROGRESS | MEAL | CHALLENGE_WIN | COACH_VIDEO
+  body           String    @default("")
+  sessionId      String?
+  activityId     String?
+  weightChangeKg Decimal?  @db.Decimal(5, 1)
+  hasPr          Boolean   @default(false)
+  mediaId        String?
+  createdAt      DateTime  @default(now())
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  deletedBy      String?
+
+  club      Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  comments  ClubComment[]
+  reactions ClubReaction[]
+  reports   ClubReport[]
+
+  @@index([clubId, createdAt(sort: Desc)])
+  @@schema("clubs")
+  @@map("posts")
+}
+
+model ClubComment {
+  id        String    @id @default(uuid())
+  postId    String
+  authorId  String
+  body      String    @default("")
+  mediaId   String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  post    ClubPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reports ClubReport[]
+
+  @@schema("clubs")
+  @@map("comments")
+}
+
+model ClubReaction {
+  postId    String
+  userId    String
+  reaction  String   // FIRE | STRONG | CLAP | HEART
+  createdAt DateTime @default(now())
+
+  post ClubPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+  @@schema("clubs")
+  @@map("reactions")
+}
+
+/// Reports go to the App Owner and App Admins.
+model ClubReport {
+  id         String    @id @default(uuid())
+  clubId     String
+  postId     String
+  commentId  String?
+  reporterId String
+  reason     String
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+  resolvedBy String?
+  outcome    String?   // REMOVED | DISMISSED
+
+  club    Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  post    ClubPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment ClubComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@schema("clubs")
+  @@map("reports")
 }

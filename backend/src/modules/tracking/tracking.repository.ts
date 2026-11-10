@@ -556,3 +556,51 @@ async function insertMilestone(
   );
   return mapMilestone(rows[0]);
 }
+
+// ── Reads for Clubs (posts and the coaches' Members page) ───────────────
+
+export async function getWorkoutSession(id: string): Promise<WorkoutSessionRow | null> {
+  const { rows } = await pool.query(`SELECT * FROM tracking.workout_sessions WHERE id = $1`, [id]);
+  return rows[0] ? mapSession(rows[0]) : null;
+}
+
+/** Newest first, started at or after `since`. */
+export async function listWorkoutSessionsSince(userId: string, since: Date, limit: number): Promise<WorkoutSessionRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM tracking.workout_sessions WHERE user_id = $1 AND started_at >= $2 ORDER BY started_at DESC LIMIT $3`,
+    [userId, since, limit],
+  );
+  return rows.map(mapSession);
+}
+
+export interface SetWithExercise extends SetLogRow { exerciseName: string }
+
+/** A session's sets with exercise names, in the template's exercise order (else by name), then set number. */
+export async function listSetsWithExercise(sessionId: string): Promise<SetWithExercise[]> {
+  const { rows } = await pool.query(
+    `SELECT sl.*, e.name AS exercise_name
+       FROM tracking.set_logs sl
+       JOIN tracking.exercises e ON e.id = sl.exercise_id
+       JOIN tracking.workout_sessions ws ON ws.id = sl.session_id
+       LEFT JOIN tracking.workout_template_exercises te ON te.template_id = ws.template_id AND te.exercise_id = sl.exercise_id
+      WHERE sl.session_id = $1
+      ORDER BY te."order" NULLS LAST, e.name, sl.set_number`,
+    [sessionId],
+  );
+  return rows.map((r) => ({ ...mapSetLog(r), exerciseName: r.exercise_name }));
+}
+
+export async function getActivityLog(id: string): Promise<ActivityLogRow | null> {
+  const { rows } = await pool.query(`SELECT ${ACTIVITY_COLUMNS} FROM tracking.activity_logs WHERE id = $1`, [id]);
+  return rows[0] ? mapActivity(rows[0]) : null;
+}
+
+/** Newest first, on or after a date (YYYY-MM-DD). */
+export async function listActivityLogsSince(userId: string, fromIso: string, limit: number): Promise<ActivityLogRow[]> {
+  const { rows } = await pool.query(
+    `SELECT ${ACTIVITY_COLUMNS} FROM tracking.activity_logs WHERE user_id = $1 AND performed_on >= $2
+      ORDER BY performed_on DESC, created_at DESC LIMIT $3`,
+    [userId, fromIso, limit],
+  );
+  return rows.map(mapActivity);
+}

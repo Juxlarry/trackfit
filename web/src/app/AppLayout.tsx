@@ -7,6 +7,7 @@ import { usePlan } from "../hooks/usePlan";
 import { takePendingJoin } from "../lib/pendingJoin";
 import { syncPush } from "../lib/push";
 import { AppSheets, useSheets } from "./AppSheets";
+import { PulseLoader } from "../components/ui/PulseLoader";
 
 const TABS = [
   { to: "/today", label: "Today", icon: Sun },
@@ -20,7 +21,7 @@ const CLUBS_TAB = { to: "/clubs", label: "Clubs", icon: Users };
 export function RequirePlan({ children }: { children: ReactNode }) {
   const { ready } = useAuth();
   const { signedIn, loading, plan, error } = usePlan();
-  if (!ready || loading) return <p className="boot">Loading your plan…</p>;
+  if (!ready || loading) return <PulseLoader full label="Loading your plan" />;
   if (!signedIn) return <Navigate to="/signin" replace />;
   if (error) return <p className="boot">Couldn't reach TrackFit. Check the API is running, then refresh. ({error.message})</p>;
   if (!plan) return <Navigate to="/start/welcome" replace />;
@@ -73,7 +74,7 @@ export function AppLayout() {
       <AppSheets>
         <div className="shell">
           <Tabs />
-          <main className="view"><Suspense fallback={<p className="boot">Loading…</p>}><Outlet /></Suspense></main>
+          <main className="view"><Suspense fallback={<PulseLoader />}><Outlet /></Suspense></main>
         </div>
       </AppSheets>
     </RequirePlan>

@@ -49,6 +49,9 @@ services:
         sync: false
       - key: MAIL_REPLY_TO # optional: an inbox you read, so replies reach you
         sync: false
+      # Club photos and videos (README, Deploying step 8), e.g. your-project.firebasestorage.app
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
       # "false" switches Clubs off everywhere. Unset means on.
       - key: CLUBS_ENABLED
         sync: false

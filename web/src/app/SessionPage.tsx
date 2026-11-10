@@ -12,6 +12,7 @@ import { useToast } from "../components/ui/Toast";
 import { localToday, mmss, noonOn } from "../lib/dates";
 import { useSheets } from "./AppSheets";
 import { REFETCH_LOGS, sessionOn } from "./planUtil";
+import { ShareCard } from "./clubs/ShareCard";
 
 interface Row { kg: string; reps: string; done: boolean }
 interface Hist { id: string; startedAt: string; sets: { setNumber: number; reps: number; weightKg: number; exercise: { id: string } }[] }
@@ -39,7 +40,7 @@ export function SessionPage() {
   const [rows, setRows] = useState<Row[][]>(() => session?.exercises.map((e) => Array.from({ length: e.sets }, () => ({ kg: "", reps: "", done: false }))) ?? []);
   const [rest, setRest] = useState<{ left: number; total: number } | null>(null);
   const [leaving, setLeaving] = useState(false);
-  const [summary, setSummary] = useState<{ dur: number; sets: number; vol: number; prs: number; partial: boolean } | null>(null);
+  const [summary, setSummary] = useState<{ id: string | null; dur: number; sets: number; vol: number; prs: number; partial: boolean } | null>(null);
   const [justDone, setJustDone] = useState<string | null>(null);
 
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, []);
@@ -101,7 +102,7 @@ export function SessionPage() {
       } } });
       const out = res.data?.logWorkoutSession;
       setRest(null);
-      setSummary({ dur, sets: doneN, vol: out?.volumeKg ?? 0, prs: out?.milestones.length ?? 0, partial: doneN < all });
+      setSummary({ id: out?.id ?? null, dur, sets: doneN, vol: out?.volumeKg ?? 0, prs: out?.milestones.length ?? 0, partial: doneN < all });
     } catch (err) { toast(err instanceof Error ? err.message : "Couldn't save your workout. Try again."); }
   };
 
@@ -195,6 +196,7 @@ export function SessionPage() {
               <div><b>{units.toDisplay(summary.vol).toLocaleString("en-GB")}</b>{units.unit} lifted</div>
             </div>
             {summary.prs > 0 && <p style={{ marginTop: 8 }}><span className="pr" style={{ margin: "0 6px 0 0" }}>PR</span>{summary.prs} new personal best{summary.prs > 1 ? "s" : ""} today.</p>}
+            {summary.id && <ShareCard link={{ sessionId: summary.id }} />}
             <button type="button" className="cta" style={{ marginTop: 16 }} onClick={() => navigate("/today", { replace: true })}>Back to Today</button>
           </>
         )}

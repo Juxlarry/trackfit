@@ -6,6 +6,7 @@ import type { MyClubsData } from "../../graphql/types";
 import { usePlan } from "../../hooks/usePlan";
 import { useToast } from "../../components/ui/Toast";
 import { ViewHead } from "../AppLayout";
+import { PulseLoader } from "../../components/ui/PulseLoader";
 
 /** /clubs: the clubs you're in or waiting for, and invites sent to you. */
 export function ClubsPage() {
@@ -52,7 +53,7 @@ export function ClubsPage() {
 
           <section className="card fadein">
             <div className="card-h"><div><h3>Your clubs</h3><p>{active.length ? `${active.length} club${active.length === 1 ? "" : "s"}` : "Clubs are invite-only for now."}</p></div></div>
-            {q.loading && !q.data ? <p className="help">Loading…</p> : active.length === 0 && waiting.length === 0 ? (
+            {q.loading && !q.data ? <PulseLoader small /> : active.length === 0 && waiting.length === 0 ? (
               <p className="help">You're not in a club yet. When someone invites you, the invite shows up here and in your email.</p>
             ) : (
               <div className="list">
