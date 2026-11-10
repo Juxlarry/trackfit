@@ -15,8 +15,14 @@ import { firebaseAdmin } from "../src/shared/auth/firebase.js";
 const origins = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 if (!origins.length && process.env.APP_URL) origins.push(process.env.APP_URL);
 const bucketName = process.env.FIREBASE_STORAGE_BUCKET || (process.env.FIREBASE_PROJECT_ID ? `${process.env.FIREBASE_PROJECT_ID}.firebasestorage.app` : "");
-if (!origins.length || !bucketName) {
-  console.error("Set APP_URL (or pass the web app's origins) and FIREBASE_STORAGE_BUCKET.");
+const missing = [
+  !origins.length && "the web app's address (pass it, e.g. `npm run media:cors -- https://your-project.web.app`, or set APP_URL)",
+  !bucketName && "FIREBASE_PROJECT_ID (or FIREBASE_STORAGE_BUCKET)",
+  !process.env.FIREBASE_CLIENT_EMAIL && "FIREBASE_CLIENT_EMAIL",
+  !process.env.FIREBASE_PRIVATE_KEY && "FIREBASE_PRIVATE_KEY",
+].filter(Boolean);
+if (missing.length) {
+  console.error(`Missing: ${missing.join("; ")}.\nUse the same Firebase values as on Render (dashboard > trackfit-api > Environment).`);
   process.exit(1);
 }
 const clean = origins.map((o) => new URL(o).origin);
