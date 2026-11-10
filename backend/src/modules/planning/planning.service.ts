@@ -5,13 +5,15 @@ import { badInput, notFound, assertIsoDate } from "../../shared/errors.js";
 import type { UserRow } from "../identity/identity.repository.js";
 import {
   addDaysIso, adaptations, buildWeek, computeProjection, computeTargets, dayRange, generatePlan, isScreenedOut, mondayOf,
-  restSuggestion, suggestLoadKg, swapIssue, swappedOrder, toIsoDate, validateIntake, weekTypes, weekdayOf,
-  type DaySwap, type DietInput, type GeneratedPlan, type HealthScreening, type TrainingInput,
+  restSuggestion, suggestLoadKg, swapIssue, swappedOrder, toIsoDate, validateDiet, validateIntake, validateTraining, weekTypes, weekdayOf,
+  PLACEHOLDER_DIET, quickTraining,
+  type DaySwap, type DietInput, type FuelLifestyle, type GeneratedPlan, type HealthScreening, type IntakeSection, type TrainingBasics,
+  type TrainingDetails, type TrainingInput,
 } from "./engine/index.js";
 import {
   archiveActiveProgram, deactivateProgramTemplates, deleteScheduleSwaps, getActiveProgram, getIntake, insertGeneratedTemplates,
   insertProgram, insertScheduleSwap, emailTakenByOther, listActiveSessions, listScheduleSwaps, lockProgram, markOnboarded,
-  setReminderTime, templateLoggedNear, updateProgramSchedule, upsertHealthScreening, upsertIntake,
+  saveFuelLifestyle, saveTrainingDetails, setReminderTime, templateLoggedNear, updateProgramSchedule, upsertHealthScreening, upsertIntake,
   type IntakeExtras, type ScheduleSwapRow, type StoredSession,
 } from "./planning.repository.js";
 import {
@@ -63,6 +65,55 @@ export async function completeOnboarding(
   input: OnboardingSubmission,
   auth: { emailVerified: boolean; signInProvider: string | null } | null,
 ): Promise<OnboardingResult> {
+  return onboard(user, { ...input, trainingExtras: { ...input.trainingExtras, onboardingPath: "FULL", pendingSections: [] } }, auth);
+}
+
+type Auth = { emailVerified: boolean; signInProvider: string | null } | null;
+
+export interface QuickOnboardingSubmission {
+  displayName: string | null;
+  email: string | null;
+  screening: HealthScreening;
+  basics: TrainingBasics;
+  /** Sent when the user answered them anyway (e.g. switched paths partway). */
+  details: TrainingDetails | null;
+  fuel: { diet: DietInput; dietExtras: DietExtras; lifestyle: FuelLifestyle } | null;
+  trainingExtras: Omit<IntakeExtras, "onboardingPath" | "pendingSections">;
+  startDate: string;
+}
+
+/**
+ * Quick start (README "Quick start onboarding"): only the basics are required.
+ * Anything not answered gets the engine's defaults and is remembered as owed.
+ * Answers from an earlier cycle are kept rather than reset to defaults.
+ */
+export async function completeQuickOnboarding(user: UserRow, input: QuickOnboardingSubmission, auth: Auth): Promise<OnboardingResult> {
+  const [prior, priorDiet] = await Promise.all([getIntake(user.id), getDietaryProfile(user.id)]);
+  const knownDetails = prior && !prior.pendingSections.includes("TRAINING_DETAILS") ? prior.training : null;
+  const knownLifestyle = prior && !prior.pendingSections.includes("FUEL") ? prior.training : null;
+  const details = input.details ?? knownDetails;
+  const lifestyle = input.fuel?.lifestyle ?? knownLifestyle;
+  const diet = input.fuel?.diet ?? priorDiet;
+  const pending: IntakeSection[] = [...(diet ? [] : ["FUEL" as const]), ...(details ? [] : ["TRAINING_DETAILS" as const])];
+  return onboard(user, {
+    displayName: input.displayName, email: input.email, screening: input.screening, startDate: input.startDate,
+    training: quickTraining(input.basics, details && pick(details), lifestyle && { activityLevel: lifestyle.activityLevel, trainTime: lifestyle.trainTime, busyness: lifestyle.busyness }),
+    trainingExtras: { ...input.trainingExtras, onboardingPath: "QUICK", pendingSections: pending },
+    diet, dietExtras: input.fuel?.dietExtras ?? { calorieAwareness: null, proteinAwareness: null },
+  }, auth);
+}
+
+const pick = (t: TrainingDetails): TrainingDetails => ({
+  liftComfort: t.liftComfort, split: t.split, fullBodyDay: t.fullBodyDay, priorityMuscles: t.priorityMuscles,
+  lowPriorityMuscles: t.lowPriorityMuscles, cardioLikes: t.cardioLikes, warmup: t.warmup, sleepHours: t.sleepHours, sleepQuality: t.sleepQuality,
+});
+
+/** Both paths: gate, save, generate the program and nutrition targets, then the welcome email. */
+async function onboard(
+  user: UserRow,
+  input: Omit<OnboardingSubmission, "diet"> & { diet: DietInput | null },
+  auth: Auth,
+): Promise<OnboardingResult> {
   const screenedOut = isScreenedOut(input.screening);
   if (screenedOut) {
     await upsertHealthScreening(pool, user.id, input.screening, true);
@@ -71,20 +122,21 @@ export async function completeOnboarding(
       message: "Based on your answers, please speak with a doctor or qualified trainer before starting a generated program. You can still use TrackFit's logging tools.",
     };
   }
-  const issues = validateIntake(input.training, input.diet);
+  const issues = [...validateTraining(input.training), ...(input.diet ? validateDiet(input.diet) : [])];
   if (issues.length) throw badInput("Some answers need another look.", issues);
   checkStartDate(input.startDate);
   if (!user.email && input.email && (await emailTakenByOther(user.id, input.email))) {
     throw badInput("That email already has a TrackFit account. Sign in instead.", [{ field: "email", message: "Already registered." }]);
   }
 
-  const plan = generatePlan(input.training, input.diet, input.startDate);
+  // Calories and the week don't depend on the diet; without one, no menu is kept.
+  const plan = generatePlan(input.training, input.diet ?? PLACEHOLDER_DIET, input.startDate);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await upsertHealthScreening(client, user.id, input.screening, false);
     await upsertIntake(client, user.id, input.training, input.trainingExtras);
-    await upsertDietaryProfile(client, user.id, input.diet, input.dietExtras);
+    if (input.diet) await upsertDietaryProfile(client, user.id, input.diet, input.dietExtras);
     const previousCycle = await archiveActiveProgram(client, user.id);
     await archiveActiveNutritionPlan(client, user.id);
     const cycleNumber = previousCycle + 1;
@@ -141,7 +193,11 @@ export interface ActivePlan {
   adaptations: ReturnType<typeof adaptations>;
   /** Day swaps the user made, per week, in order. The plan's week (sessions) is unchanged by them. */
   scheduleSwaps: ScheduleSwapRow[];
-  profile: TrainingInput & { reminderTime: string | null; diet: DietInput };
+  /** diet is null until a quick start user sets up Fuel. */
+  profile: TrainingInput & { reminderTime: string | null; diet: DietInput | null };
+  onboardingPath: "FULL" | "QUICK";
+  /** Question blocks still owed (quick start). */
+  pendingSections: IntakeSection[];
 }
 
 export async function getActivePlan(userId: string): Promise<ActivePlan | null> {
@@ -150,7 +206,7 @@ export async function getActivePlan(userId: string): Promise<ActivePlan | null> 
   const [intake, diet, nplan, sessions, scheduleSwaps] = await Promise.all([
     getIntake(userId), getDietaryProfile(userId), getActiveNutritionPlan(userId), listActiveSessions(program.id), listScheduleSwaps(program.id),
   ]);
-  if (!intake || !diet || !nplan) throw notFound("Plan data is incomplete. Please redo onboarding.");
+  if (!intake || !nplan) throw notFound("Plan data is incomplete. Please redo onboarding.");
   const t = intake.training;
   const computed = computeTargets(t, program.daysPerWeek);
   const used = new Set(sessions.map((s) => s.weekday));
@@ -170,8 +226,76 @@ export async function getActivePlan(userId: string): Promise<ActivePlan | null> 
     adaptations: adaptations(t, diet, week),
     scheduleSwaps,
     profile: { ...t, reminderTime: intake.reminderTime, diet },
+    onboardingPath: intake.onboardingPath,
+    pendingSections: intake.pendingSections,
   };
 }
+
+// ── Questions asked later (quick start) ─────────────────────────────────
+
+/**
+ * "Set up Fuel": the diet and the two lifestyle answers that change calories
+ * and meal timing. Recalculates the targets, keeping any check-in correction.
+ */
+export async function completeFuelSetup(
+  userId: string, input: { diet: DietInput; dietExtras: DietExtras; lifestyle: FuelLifestyle },
+): Promise<ActivePlan> {
+  const program = await getActiveProgram(userId);
+  const intake = await getIntake(userId);
+  if (!program || !intake) throw notFound("No active plan.");
+  const issues = validateDiet(input.diet);
+  if (issues.length) throw badInput("Some answers need another look.", issues);
+  const training = { ...intake.training, ...input.lifestyle };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await upsertDietaryProfile(client, userId, input.diet, input.dietExtras);
+    await saveFuelLifestyle(client, userId, input.lifestyle);
+    await updateActiveNutritionTargets(client, userId, computeTargets(training, program.daysPerWeek, program.kcalOffset));
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  return (await getActivePlan(userId))!;
+}
+
+/**
+ * "Fine-tune your training". Rebuilds the weekly plan the way ±1 training
+ * days does: check-in adjustments stay, logged workouts keep their history,
+ * and this week's day swaps are cleared.
+ */
+export async function fineTuneTraining(userId: string, details: TrainingDetails): Promise<ActivePlan> {
+  const program = await getActiveProgram(userId);
+  const intake = await getIntake(userId);
+  if (!program || !intake) throw notFound("No active plan.");
+  const training = { ...intake.training, ...pick(details) };
+  const issues = validateTraining(training);
+  if (issues.length) throw badInput("Some answers need another look.", issues);
+  const week = buildWeek(training, program.daysPerWeek, program.buildOptions);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await lockProgram(client, program.id);
+    await saveTrainingDetails(client, userId, pick(details));
+    await deactivateProgramTemplates(client, program.id);
+    await deleteScheduleSwaps(client, program.id);
+    await insertGeneratedTemplates(client, userId, program.id, week);
+    await updateProgramSchedule(client, program.id, { splitLabel: week.splitLabel });
+    await updateActiveNutritionTargets(client, userId, computeTargets(training, program.daysPerWeek, program.kcalOffset));
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  return (await getActivePlan(userId))!;
+}
+
+export { pick as pickTrainingDetails };
 
 /** The ±1 rule: regenerate the week and calorie target for a new day count. */
 export async function setTrainingDays(userId: string, days: number): Promise<ActivePlan> {

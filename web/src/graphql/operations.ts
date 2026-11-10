@@ -169,6 +169,8 @@ export const PLAN_FIELDS = gql`
     daysPerWeek
     dayRange { min max }
     splitLabel
+    onboardingPath
+    pendingSections
     targets { bmr tdee kcal proteinG carbsG fatG }
     projection { weeks weeklyRateKg endDate }
     sessions {
@@ -205,6 +207,27 @@ export const COMPLETE_ONBOARDING = gql`
       plan { ...PlanFields }
     }
   }
+  ${PLAN_FIELDS}
+`;
+
+export const COMPLETE_QUICK_ONBOARDING = gql`
+  mutation CompleteQuickOnboarding($input: QuickOnboardingInput!) {
+    completeQuickOnboarding(input: $input) {
+      screenedOut
+      message
+      plan { ...PlanFields }
+    }
+  }
+  ${PLAN_FIELDS}
+`;
+
+export const COMPLETE_FUEL_SETUP = gql`
+  mutation CompleteFuelSetup($input: FuelSetupInput!) { completeFuelSetup(input: $input) { ...PlanFields } }
+  ${PLAN_FIELDS}
+`;
+
+export const FINE_TUNE_TRAINING = gql`
+  mutation FineTuneTraining($input: TrainingDetailsInput!) { fineTuneTraining(input: $input) { ...PlanFields } }
   ${PLAN_FIELDS}
 `;
 
@@ -396,8 +419,8 @@ export const CYCLE_CHECKIN = gql`
 `;
 
 export const PREVIEW_NEXT_CYCLE = gql`
-  query PreviewNextCycle($today: String!, $answers: CheckinAnswersInput!) {
-    previewNextCycle(today: $today, answers: $answers) {
+  query PreviewNextCycle($today: String!, $answers: CheckinAnswersInput!, $details: TrainingDetailsInput) {
+    previewNextCycle(today: $today, answers: $answers, details: $details) {
       daysPerWeek splitLabel
       targets { kcal proteinG carbsG fatG }
       changes { icon title why }
@@ -407,8 +430,8 @@ export const PREVIEW_NEXT_CYCLE = gql`
 `;
 
 export const COMPLETE_CHECKIN = gql`
-  mutation CompleteCheckin($today: String!, $answers: CheckinAnswersInput!, $startDate: String!) {
-    completeCheckin(today: $today, answers: $answers, startDate: $startDate) { ...PlanFields }
+  mutation CompleteCheckin($today: String!, $answers: CheckinAnswersInput!, $startDate: String!, $details: TrainingDetailsInput) {
+    completeCheckin(today: $today, answers: $answers, startDate: $startDate, details: $details) { ...PlanFields }
   }
   ${PLAN_FIELDS}
 `;

@@ -3,16 +3,16 @@ import { eventBus } from "../../shared/events/bus.js";
 import { assertIsoDate, badInput, notFound } from "../../shared/errors.js";
 import {
   CHECKIN_OPENS_DAY, addDaysIso, checkinOpen, cycleResults, dayRange, daysBetween, planNextCycle, sessionOnDate, targetWeightIssue,
-  type CheckinAnswers, type CycleResults, type NextCycle, type Units,
+  type CheckinAnswers, type CycleResults, type NextCycle, type TrainingDetails, type Units,
 } from "./engine/index.js";
 import { eatingFromLog, type EatingLog } from "./engine/foods.js";
 import { archiveActiveNutritionPlan, getActiveNutritionPlan, insertNutritionPlan } from "../nutrition/nutrition.repository.js";
 import { eatenKcalByDay } from "../nutrition/nutrition.service.js";
 import {
   archiveActiveProgram, cycleLogs, getActiveProgram, getIntake, insertCheckin, insertGeneratedTemplates, insertProgram,
-  listActiveSessions, listScheduleSwaps, updateIntakeForCycle,
+  listActiveSessions, listScheduleSwaps, saveTrainingDetails, updateIntakeForCycle,
 } from "./planning.repository.js";
-import { CYCLE_DAYS, getActivePlan, type ActivePlan } from "./planning.service.js";
+import { CYCLE_DAYS, getActivePlan, pickTrainingDetails, type ActivePlan } from "./planning.service.js";
 
 /**
  * Week-6 check-in (rules: engine/checkin.ts). Opens on day 40 of a cycle;
@@ -62,8 +62,10 @@ export async function getCheckin(userId: string, today: string): Promise<Checkin
   };
 }
 
-async function next(userId: string, today: string, answers: CheckinAnswers, units: Units) {
-  const ctx = await load(userId, today);
+async function next(userId: string, today: string, answers: CheckinAnswers, units: Units, details?: TrainingDetails | null) {
+  const loaded = await load(userId, today);
+  // A quick start user who never fine-tuned answers those questions here, so cycle 2 uses them.
+  const ctx = details ? { ...loaded, intake: { ...loaded.intake, training: { ...loaded.intake.training, ...pickTrainingDetails(details) } } } : loaded;
   const { program, intake, nplan, logs, results } = ctx;
   if (!checkinOpen(program.startDate, today)) throw badInput(`Your check-in opens on day ${CHECKIN_OPENS_DAY} of the cycle.`);
   if (results.needsWeighIn) throw badInput("Log today's weigh-in first, so cycle 2 starts from your real weight.");
@@ -83,21 +85,22 @@ async function next(userId: string, today: string, answers: CheckinAnswers, unit
   return { ...ctx, plan };
 }
 
-export async function previewNextCycle(userId: string, today: string, answers: CheckinAnswers, units: Units): Promise<NextCycle> {
-  return (await next(userId, today, answers, units)).plan;
+export async function previewNextCycle(userId: string, today: string, answers: CheckinAnswers, units: Units, details?: TrainingDetails | null): Promise<NextCycle> {
+  return (await next(userId, today, answers, units, details)).plan;
 }
 
 export async function completeCheckin(
-  userId: string, today: string, answers: CheckinAnswers, startDate: string, units: Units,
+  userId: string, today: string, answers: CheckinAnswers, startDate: string, units: Units, details?: TrainingDetails | null,
 ): Promise<ActivePlan> {
   assertIsoDate(startDate, "startDate");
   if (startDate < addDaysIso(today, -1) || startDate > addDaysIso(today, 14)) {
     throw badInput("Pick a start date between today and 2 weeks from now.", [{ field: "startDate", message: "Out of range." }]);
   }
-  const { program, results, plan } = await next(userId, today, answers, units);
+  const { program, results, plan } = await next(userId, today, answers, units, details);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (details) await saveTrainingDetails(client, userId, pickTrainingDetails(details));
     await updateIntakeForCycle(client, userId, plan.training);
     await archiveActiveProgram(client, userId);
     await archiveActiveNutritionPlan(client, userId);

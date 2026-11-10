@@ -190,10 +190,11 @@ export const planningTypeDefs = /* GraphQL */ `
     priorityMuscles: [PriorityMuscle!]!
     lowPriorityMuscles: [PriorityMuscle!]!
     reminderTime: String
-    dietPattern: DietPattern!
+    "Null until a quick start user sets up Fuel (then allergies and favouriteDishes are empty)."
+    dietPattern: DietPattern
     allergies: [Allergen!]!
-    mealPattern: MealPattern!
-    fasting: Fasting!
+    mealPattern: MealPattern
+    fasting: Fasting
     prep: PrepStyle
     favouriteDishes: [String!]!
   }
@@ -216,6 +217,69 @@ export const planningTypeDefs = /* GraphQL */ `
     "Day swaps per week, in the order made. Apply them to sessions' weekdays to get that week's schedule."
     scheduleSwaps: [ScheduleSwap!]!
     profile: PlanProfile!
+    onboardingPath: OnboardingPath!
+    "Question blocks a quick start user still owes. FUEL must be answered before Fuel opens."
+    pendingSections: [IntakeSection!]!
+  }
+
+  enum OnboardingPath { FULL QUICK }
+  enum IntakeSection {
+    "Set up Fuel: diet, allergies, favourite meals, meals a day, prep, struggles, fasting, daily activity, training time."
+    FUEL
+    "Fine-tune your training (optional): lift comfort, split, full-body day, priority muscles, cardio likes, warm-up, sleep."
+    TRAINING_DETAILS
+  }
+
+  "The quick path's questions."
+  input QuickBasicsInput {
+    sex: Sex!
+    age: Int!
+    heightCm: Float!
+    weightKg: Float!
+    bodyFatLevel: Int
+    goal: GoalType!
+    targetWeightKg: Float
+    pace: Pace
+    experience: Experience!
+    equipment: Equipment!
+    availableDays: [Int!]!
+    daysPerWeek: Int!
+    sessionMinutes: Int!
+    injuries: [Injury!]!
+    injuryNote: String
+    motivations: [String!]
+  }
+
+  input TrainingDetailsInput {
+    liftComfort: LiftComfort!
+    split: SplitPreference!
+    fullBodyDay: Boolean!
+    priorityMuscles: [PriorityMuscle!]!
+    lowPriorityMuscles: [PriorityMuscle!]
+    cardioLikes: [String!]!
+    cardioFrequency: String
+    warmup: Boolean!
+    sleepHours: Float!
+    sleepQuality: SleepQuality
+  }
+
+  input FuelSetupInput {
+    diet: DietIntakeInput!
+    activityLevel: ActivityLevel!
+    trainTime: TrainTime
+    busyness: Busyness
+  }
+
+  input QuickOnboardingInput {
+    displayName: String
+    email: String
+    screening: HealthScreeningInput!
+    basics: QuickBasicsInput!
+    "Only if answered anyway, e.g. after switching from the full quiz."
+    details: TrainingDetailsInput
+    fuel: FuelSetupInput
+    mindset: MindsetInput
+    startDate: String!
   }
 
   type OnboardingResult {
@@ -298,8 +362,8 @@ export const planningTypeDefs = /* GraphQL */ `
     myCycles: [CycleSpan!]!
     "The week-6 check-in for the active cycle. today is the caller's local date (YYYY-MM-DD)."
     cycleCheckin(today: String!): CycleCheckin
-    "What the next cycle would look like with these answers. Nothing is saved."
-    previewNextCycle(today: String!, answers: CheckinAnswersInput!): CyclePreview!
+    "What the next cycle would look like with these answers. Nothing is saved. details: the fine-tune answers, for a quick start user who never gave them."
+    previewNextCycle(today: String!, answers: CheckinAnswersInput!, details: TrainingDetailsInput): CyclePreview!
     "Generates a plan without saving it. No sign-in needed (used before sign-up and by the mobile app)."
     previewPlan(training: TrainingIntakeInput!, diet: DietIntakeInput!, startDate: String!): PlanPreview!
     "The signed-in user's active plan, or null if they haven't onboarded."
@@ -309,6 +373,12 @@ export const planningTypeDefs = /* GraphQL */ `
   extend type Mutation {
     "Health gate, save answers, generate program + nutrition plan in one step, send the welcome email."
     completeOnboarding(input: OnboardingInput!): OnboardingResult!
+    "Quick start: only the basics are required; the rest is asked later (pendingSections)."
+    completeQuickOnboarding(input: QuickOnboardingInput!): OnboardingResult!
+    "Set up Fuel: saves the diet and recalculates calorie targets."
+    completeFuelSetup(input: FuelSetupInput!): ActivePlan!
+    "Fine-tune your training: rebuilds the weekly plan with these answers."
+    fineTuneTraining(input: TrainingDetailsInput!): ActivePlan!
     "±1 day rule: anywhere in dayRange."
     setTrainingDays(days: Int!): ActivePlan!
     setStartDate(date: String!): ActivePlan!
@@ -317,7 +387,7 @@ export const planningTypeDefs = /* GraphQL */ `
     "Undo this week's swaps for the week containing date."
     resetWeekSchedule(date: String!): ActivePlan!
     "Closes the cycle and builds the next one from the check-in. Returns the new plan."
-    completeCheckin(today: String!, answers: CheckinAnswersInput!, startDate: String!): ActivePlan!
+    completeCheckin(today: String!, answers: CheckinAnswersInput!, startDate: String!, details: TrainingDetailsInput): ActivePlan!
     "HH:MM 24-hour, or null to turn reminders off."
     setWorkoutReminder(time: String): ActivePlan!
   }

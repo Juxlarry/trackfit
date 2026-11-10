@@ -15,6 +15,7 @@ const WelcomePhotoPage = lazy(() => import("./pages/WelcomePage").then((m) => ({
 const TodayPage = lazy(() => import("./app/TodayPage").then((m) => ({ default: m.TodayPage })));
 const TrainPage = lazy(() => import("./app/TrainPage").then((m) => ({ default: m.TrainPage })));
 const FuelPage = lazy(() => import("./app/FuelPage").then((m) => ({ default: m.FuelPage })));
+const FineTunePage = lazy(() => import("./app/IntakeSection").then((m) => ({ default: m.FineTunePage })));
 const ProgressPage = lazy(() => import("./app/ProgressPage").then((m) => ({ default: m.ProgressPage })));
 const CheckinPage = lazy(() => import("./app/CheckinPage").then((m) => ({ default: m.CheckinPage })));
 const SessionPage = lazy(() => import("./app/SessionPage").then((m) => ({ default: m.SessionPage })));
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/today" element={<TodayPage />} />
         <Route path="/train" element={<TrainPage />} />
         <Route path="/fuel" element={<FuelPage />} />
+        <Route path="/fine-tune" element={<FineTunePage />} />
         <Route path="/progress" element={<ProgressPage />} />
         <Route path="/session/:templateId" element={<SessionPage />} />
         <Route path="/checkin" element={<CheckinPage />} />

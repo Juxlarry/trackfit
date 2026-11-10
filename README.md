@@ -4,7 +4,7 @@ Fitness tracker with a personalised onboarding quiz, a generated 6-week training
 
 ## What's in MVP 2
 
-- **Onboarding quiz** at `/start` (45 screens across 6 stages: You, Goal, Training, Lifestyle, Fuel, Mindset). Answers stay on the device until the account exists, so nothing is lost on refresh.
+- **Onboarding quiz** at `/start` (45 screens across 6 stages: You, Goal, Training, Lifestyle, Fuel, Mindset), or [quick start](#quick-start-onboarding-spec) with 13 questions. Answers stay on the device until the account exists, so nothing is lost on refresh.
 - **Health gate**: any screening flag stops plan generation and points to safer next steps.
 - **Plan generation** in one step: 6-week program (split, warm-ups, abs & core in every session, optional full-body day, injury swaps) plus a nutrition plan from the user's favourite dishes (2 meals + snack up to 3 meals + 2 snacks).
 - **±1 training days** after rollout, anchored to the onboarding answer (`max(2, n-1)` to `min(6, n+1)`), on the plan reveal, the Train tab and the profile sheet.
@@ -217,7 +217,7 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 
 ## Quick start onboarding (spec)
 
-**Status: approved November 2026, not built yet.** The choices that were signed off are listed under [Approved decisions](#approved-decisions). It'll be built on `feature/quick-onboarding`.
+**Status: approved and built November 2026** on `feature/quick-onboarding` (see [As built](#as-built)). The choices that were signed off are listed under [Approved decisions](#approved-decisions).
 
 ### Why
 
@@ -331,6 +331,23 @@ Signed off by the App Owner in November 2026:
 2. **Mindset questions** are dropped for quick start users. Nothing asks for them later.
 3. **Target weight and pace** stay on the quick path for weight-loss and muscle-gain goals.
 4. **Switching** works both ways mid-quiz, keeping every answer: "Finish faster" on the full quiz, "Answer everything instead" on the quick path.
+
+### As built
+
+- **API:** `sql/014_quick_onboarding.sql`, `engine/quickstart.ts` (the defaults, shared with the web app's plan preview), and `planning.service.ts`.
+  - **Its own mutation,** not a flag on `completeOnboarding`: `completeQuickOnboarding(input: QuickOnboardingInput)`. It requires `basics` (the quick questions). `details` and `fuel` are optional, and are sent when they were answered anyway, after switching from the full quiz.
+  - **Earlier answers are kept.** Redoing onboarding the quick way keeps answers from an earlier cycle instead of resetting them to defaults, so nothing is owed twice.
+  - **Pending blocks live on the plan:** `myPlan { onboardingPath pendingSections }`, not on `me`. The app already loads the plan everywhere it needs this.
+  - **Fuel without setup:** `mealDay`, `logFood` and `setWater` return the `FUEL_SETUP_NEEDED` error code.
+  - **Later answers:** `completeFuelSetup` recalculates the targets and keeps any check-in correction. `fineTuneTraining` rebuilds the week like `setTrainingDays`.
+  - **The check-in:** `previewNextCycle` and `completeCheckin` take an optional `details`. Without Fuel, the check-in skips the eating question and uses "some days", so calories never get stricter.
+- **Web:**
+  - **Quiz steps:** each one in `onboarding/steps.tsx` has a `block` tag (`fuel`, `details`, `mindset` or `extra`). `onboarding/blocks.ts` decides what each path asks.
+  - **Building the plan:** quick start skips the warm-up and energy pop-ups. Warm-up is part of "Fine-tune your training".
+  - **Asked later:** `app/IntakeSection.tsx` shows the same quiz screens one block at a time. It's used by the Fuel gate, `/fine-tune` and the check-in, and saves answers on the device as it goes.
+  - **Where it shows:** Today's Fuel card says "Set up Fuel", and the profile sheet shows "Not set yet" rows with Answer.
+- **Not in this step:** the welcome email still shows only the training plan and targets for everyone, as before, so nothing changed there.
+
 
 ## Clubs v1 (first release)
 

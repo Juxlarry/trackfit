@@ -294,6 +294,10 @@ model IntakeProfile {
   blockers        String[]
   mindset         Json     @default("{}")
   reminderTime    String?
+  /// FULL or QUICK (quick start onboarding).
+  onboardingPath  String   @default("FULL")
+  /// Question blocks still owed: FUEL, TRAINING_DETAILS.
+  pendingSections String[] @default([])
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now())
 

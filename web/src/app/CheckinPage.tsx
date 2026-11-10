@@ -13,14 +13,15 @@ import { dayLabel, localToday } from "../lib/dates";
 import { ViewHead } from "./AppLayout";
 import { REFETCH_LOGS } from "./planUtil";
 import { PulseLoader } from "../components/ui/PulseLoader";
+import { SectionQuestions } from "./IntakeSection";
+import { toDetailsInput } from "../onboarding/blocks";
 
 /**
  * Week-6 check-in (backend planning/checkin.service.ts, rules in
  * engine/checkin.ts): what the cycle did, three questions, then the next
  * cycle with every change explained.
  */
-type Step = "results" | "feel" | "eating" | "next" | "preview";
-const STEPS: Step[] = ["results", "feel", "eating", "next", "preview"];
+type Step = "results" | "feel" | "eating" | "details" | "next" | "preview";
 
 const FEEL: { value: WorkoutFeel; label: string; desc: string }[] = [
   { value: "TOO_EASY", label: "Too easy", desc: "I could have done more most sessions" },
@@ -49,11 +50,18 @@ export function CheckinPage() {
 
 function Flow({ c, today, onWeighed }: { c: CycleCheckinDto; today: string; onWeighed: () => void }) {
   const r = c.results;
+  const { plan } = usePlan();
+  // Quick start: no Fuel means no eating question; training details still owed are asked here, for cycle 2.
+  const noFuel = !!plan?.pendingSections.includes("FUEL");
+  const askDetails = !!plan?.pendingSections.includes("TRAINING_DETAILS");
+  const STEPS: Step[] = ["results", "feel", ...(noFuel ? [] : ["eating" as const]), ...(askDetails ? ["details" as const] : []), "next", "preview"];
+  const [details, setDetails] = useState<ReturnType<typeof toDetailsInput> | null>(null);
   const navigate = useNavigate();
   const toast = useToast();
   const [step, setStep] = useState<Step>("results");
   const [feel, setFeel] = useState<WorkoutFeel | null>(null);
-  const [eating, setEating] = useState<EatingAdherence | null>(c.eatingLog.suggested);
+  // Without Fuel, "some days": calories never get stricter from an answer nobody gave.
+  const [eating, setEating] = useState<EatingAdherence | null>(c.eatingLog.suggested ?? (noFuel ? "SOME_DAYS" : null));
   const [days, setDays] = useState(r.suggestedDays);
   const [goalChoice, setGoalChoice] = useState<GoalChoice>("NEW_TARGET");
   const [target, setTarget] = useState<number | null>(r.suggestedTargetKg);
@@ -68,7 +76,7 @@ function Flow({ c, today, onWeighed }: { c: CycleCheckinDto; today: string; onWe
   const [complete, done] = useMutation(COMPLETE_CHECKIN, { refetchQueries: [{ query: MY_PLAN }, ...REFETCH_LOGS], awaitRefetchQueries: true });
 
   const titles: Record<Step, string> = {
-    results: "Your 6 weeks", feel: "How did the workouts feel?", eating: "How did the eating plan go?",
+    results: "Your 6 weeks", feel: "How did the workouts feel?", eating: "How did the eating plan go?", details: "Make cycle 2 yours",
     next: r.goalReached ? "You reached your goal" : "How many days next cycle?", preview: `Your cycle ${next}`,
   };
   return (
@@ -91,6 +99,13 @@ function Flow({ c, today, onWeighed }: { c: CycleCheckinDto; today: string; onWe
             <OptionList label="How the eating plan went" options={EATING} selected={eating ? [eating] : []} onPick={setEating} />
           </section>
         )}
+        {step === "details" && (
+          <>
+            <p className="help" style={{ marginTop: 0 }}>You started with quick start, so your plan used sensible defaults. A few questions make cycle {next} fit you.</p>
+            <SectionQuestions section="TRAINING_DETAILS" cancelLabel="Back" onCancel={() => go(-1)}
+              onSubmit={(d) => { setDetails(toDetailsInput(d)); go(1); }} />
+          </>
+        )}
         {step === "next" && (r.goalReached ? (
           <GoalStep c={c} choice={r.suggestedTargetKg == null ? "MAINTAIN" : goalChoice} setChoice={setGoalChoice} target={target} setTarget={setTarget} />
         ) : (
@@ -103,10 +118,10 @@ function Flow({ c, today, onWeighed }: { c: CycleCheckinDto; today: string; onWe
           </section>
         ))}
         {step === "preview" && answers && (
-          <Preview today={today} answers={answers} next={next} keep={keep} setKeep={setKeep} startDate={startDate} setStartDate={setStartDate} />
+          <Preview today={today} answers={answers} details={details} next={next} keep={keep} setKeep={setKeep} startDate={startDate} setStartDate={setStartDate} />
         )}
 
-        <div className="btnrow">
+        <div className="btnrow" hidden={step === "details"}>
           {step !== "results" && <button type="button" className="ghost" onClick={() => go(-1)}><ArrowLeft />Back</button>}
           {step !== "preview" ? (
             <button type="button" className="cta" onClick={() => go(1)}
@@ -116,7 +131,7 @@ function Flow({ c, today, onWeighed }: { c: CycleCheckinDto; today: string; onWe
           ) : (
             <button type="button" className="cta" disabled={done.loading || !answers} onClick={async () => {
               try {
-                await complete({ variables: { today, answers, startDate } });
+                await complete({ variables: { today, answers, startDate, details } });
                 toast(`Cycle ${next} is ready. It starts ${startDate === today ? "today" : dayLabel(startDate)}.`);
                 navigate("/today", { replace: true });
               } catch (e) { toast(e instanceof Error ? e.message : "Couldn't build your next cycle. Try again."); }
@@ -216,11 +231,11 @@ function GoalStep({ c, choice, setChoice, target, setTarget }: {
   );
 }
 
-function Preview({ today, answers, next, keep, setKeep, startDate, setStartDate }: {
-  today: string; answers: CheckinAnswers; next: number; keep: string[]; setKeep: (k: string[]) => void; startDate: string; setStartDate: (d: string) => void;
+function Preview({ today, answers, details, next, keep, setKeep, startDate, setStartDate }: {
+  today: string; answers: CheckinAnswers; details: ReturnType<typeof toDetailsInput> | null; next: number; keep: string[]; setKeep: (k: string[]) => void; startDate: string; setStartDate: (d: string) => void;
 }) {
   const units = useUnits();
-  const q = useQuery<{ previewNextCycle: CyclePreviewDto }>(PREVIEW_NEXT_CYCLE, { variables: { today, answers } });
+  const q = useQuery<{ previewNextCycle: CyclePreviewDto }>(PREVIEW_NEXT_CYCLE, { variables: { today, answers, details } });
   const p = q.data?.previewNextCycle;
   // One row per swap, plus swaps the user undid (shown as kept).
   const swaps = useMemo(() => {

@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { pool } from "../../shared/db/pool.js";
 import type {
-  BuildOptions, GoalType, HealthScreening, LoggedSet, PlannedSession, SessionType, TrainingInput, WarmupItem, WeekPlan,
+  BuildOptions, FuelLifestyle, GoalType, HealthScreening, IntakeSection, TrainingDetails, LoggedSet, PlannedSession, SessionType, TrainingInput, WarmupItem, WeekPlan,
 } from "./engine/index.js";
 import { exerciseMeta, patternOf } from "./engine/index.js";
 
@@ -29,6 +29,9 @@ export interface IntakeExtras {
   cardioFrequency: string | null;
   energy: string | null;
   mindset: Record<string, unknown>;
+  /** Quick start: which path, and the blocks still to ask. Full quiz: FULL and none. */
+  onboardingPath?: "FULL" | "QUICK";
+  pendingSections?: IntakeSection[];
 }
 
 export async function upsertIntake(db: Db, userId: string, i: TrainingInput, x: IntakeExtras) {
@@ -37,8 +40,8 @@ export async function upsertIntake(db: Db, userId: string, i: TrainingInput, x: 
        user_id, sex, age, height_cm, weight_kg, body_fat_level, goal_type, target_weight_kg, goal_pace, motivations,
        experience, lift_comfort, equipment, available_days, days_per_week, session_minutes, split_preference, full_body_day,
        priority_muscles, injuries, injury_note, cardio_frequency, cardio_likes, activity_level, sleep_hours, sleep_quality,
-       train_time, busyness, warmup, energy, blockers, mindset, low_priority_muscles, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33, now())
+       train_time, busyness, warmup, energy, blockers, mindset, low_priority_muscles, onboarding_path, pending_sections, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35, now())
      ON CONFLICT (user_id) DO UPDATE SET
        sex = EXCLUDED.sex, age = EXCLUDED.age, height_cm = EXCLUDED.height_cm, weight_kg = EXCLUDED.weight_kg,
        body_fat_level = EXCLUDED.body_fat_level, goal_type = EXCLUDED.goal_type, target_weight_kg = EXCLUDED.target_weight_kg,
@@ -49,12 +52,14 @@ export async function upsertIntake(db: Db, userId: string, i: TrainingInput, x: 
        injury_note = EXCLUDED.injury_note, cardio_frequency = EXCLUDED.cardio_frequency, cardio_likes = EXCLUDED.cardio_likes,
        activity_level = EXCLUDED.activity_level, sleep_hours = EXCLUDED.sleep_hours, sleep_quality = EXCLUDED.sleep_quality,
        train_time = EXCLUDED.train_time, busyness = EXCLUDED.busyness, warmup = EXCLUDED.warmup, energy = EXCLUDED.energy,
-       blockers = EXCLUDED.blockers, mindset = EXCLUDED.mindset, low_priority_muscles = EXCLUDED.low_priority_muscles, updated_at = now()`,
+       blockers = EXCLUDED.blockers, mindset = EXCLUDED.mindset, low_priority_muscles = EXCLUDED.low_priority_muscles,
+       onboarding_path = EXCLUDED.onboarding_path, pending_sections = EXCLUDED.pending_sections, updated_at = now()`,
     [
       userId, i.sex, i.age, i.heightCm, i.weightKg, i.bodyFatLevel, i.goal, i.targetWeightKg, i.pace, x.motivations,
       i.experience, i.liftComfort, i.equipment, i.availableDays, i.daysPerWeek, i.sessionMinutes, i.split, i.fullBodyDay,
       i.priorityMuscles, i.injuries, x.injuryNote, x.cardioFrequency, i.cardioLikes, i.activityLevel, i.sleepHours, i.sleepQuality,
       i.trainTime, i.busyness, i.warmup, x.energy, i.blockers, JSON.stringify(x.mindset), i.lowPriorityMuscles,
+      x.onboardingPath ?? "FULL", x.pendingSections ?? [],
     ],
   );
 }
@@ -63,6 +68,8 @@ export interface IntakeRow {
   training: TrainingInput;
   reminderTime: string | null;
   motivations: string[];
+  onboardingPath: "FULL" | "QUICK";
+  pendingSections: IntakeSection[];
 }
 
 export async function getIntake(userId: string, db: Db = pool): Promise<IntakeRow | null> {
@@ -81,7 +88,30 @@ export async function getIntake(userId: string, db: Db = pool): Promise<IntakeRo
     },
     reminderTime: r.reminder_time,
     motivations: r.motivations,
+    onboardingPath: r.onboarding_path ?? "FULL",
+    pendingSections: r.pending_sections ?? [],
   };
+}
+
+/** "Fine-tune your training" answers. Clears TRAINING_DETAILS from the blocks still owed. */
+export async function saveTrainingDetails(db: Db, userId: string, d: TrainingDetails) {
+  await db.query(
+    `UPDATE identity.intake_profiles SET lift_comfort = $2, split_preference = $3, full_body_day = $4, priority_muscles = $5,
+            low_priority_muscles = $6, cardio_likes = $7, warmup = $8, sleep_hours = $9, sleep_quality = $10,
+            pending_sections = array_remove(pending_sections, 'TRAINING_DETAILS'), updated_at = now()
+      WHERE user_id = $1`,
+    [userId, d.liftComfort, d.split, d.fullBodyDay, d.priorityMuscles, d.lowPriorityMuscles, d.cardioLikes, d.warmup, d.sleepHours, d.sleepQuality],
+  );
+}
+
+/** The lifestyle answers asked with "Set up Fuel". Clears FUEL from the blocks still owed. */
+export async function saveFuelLifestyle(db: Db, userId: string, l: FuelLifestyle) {
+  await db.query(
+    `UPDATE identity.intake_profiles SET activity_level = $2, train_time = $3, busyness = $4,
+            pending_sections = array_remove(pending_sections, 'FUEL'), updated_at = now()
+      WHERE user_id = $1`,
+    [userId, l.activityLevel, l.trainTime, l.busyness],
+  );
 }
 
 export async function setReminderTime(userId: string, time: string | null) {

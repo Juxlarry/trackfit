@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { useApolloClient } from "@apollo/client/react";
 import { useNavigate } from "react-router-dom";
-import { COMPLETE_ONBOARDING, MY_PLAN, SET_TRAINING_DAYS, UPDATE_UNITS } from "../graphql/operations";
+import { COMPLETE_ONBOARDING, COMPLETE_QUICK_ONBOARDING, MY_PLAN, SET_TRAINING_DAYS, UPDATE_UNITS } from "../graphql/operations";
 import { writeJson } from "../lib/storage";
 import { clearDraft, emptyDraft, loadDraft, saveDraft, toOnboardingInput, type Draft } from "./draft";
+import { toQuickInput } from "./blocks";
 
 interface OnboardingState {
   draft: Draft;
@@ -46,11 +47,13 @@ export function useSubmitPlan() {
   const { latest } = useOnboarding();
   return useCallback(async (email: string | null, method: "google" | "email" | "existing" = "existing") => {
     const d = latest();
-    const res = await client.mutate<{ completeOnboarding: { screenedOut: boolean; message: string | null } }>({
-      mutation: COMPLETE_ONBOARDING,
-      variables: { input: toOnboardingInput(d, email) },
+    type Result = { screenedOut: boolean; message: string | null };
+    const quick = d.path === "QUICK";
+    const res = await client.mutate<{ completeOnboarding?: Result; completeQuickOnboarding?: Result }>({
+      mutation: quick ? COMPLETE_QUICK_ONBOARDING : COMPLETE_ONBOARDING,
+      variables: { input: quick ? toQuickInput(d, email) : toOnboardingInput(d, email) },
     });
-    if (res.data?.completeOnboarding.screenedOut) {
+    if ((res.data?.completeOnboarding ?? res.data?.completeQuickOnboarding)?.screenedOut) {
       navigate("/start/screened", { replace: true });
       return;
     }
