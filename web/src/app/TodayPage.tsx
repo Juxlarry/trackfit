@@ -14,6 +14,7 @@ import { usePushStatus } from "../lib/push";
 import { ViewHead } from "./AppLayout";
 import { ACT_ICON, useSheets } from "./AppSheets";
 import { CYCLE_DAYS, SLOT_LABEL, checkinIsOpen, checkinText, cycleWeek, firstSessionFrom, musclesFor, readFlags, sessionOn, sessionsByDate, weekDates } from "./planUtil";
+import { TodayRoutines } from "./clubs/Routines";
 
 export function Peek({ pattern }: { pattern: string | null }) {
   const p = pattern ?? "squat";
@@ -166,6 +167,7 @@ export function TodayPage() {
       <div className="agrid">
         <div className="acol">
           {hero}
+          <TodayRoutines />
           <section className="card fadein" style={{ "--d": ".08s" } as CSSProperties}>
             <div className="card-h">
               <div><h3>This week</h3><p>Cycle {plan.cycleNumber}, week {cycleWeek(plan, today)} of 6. {plan.splitLabel}.</p></div>

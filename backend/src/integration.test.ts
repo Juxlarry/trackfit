@@ -927,3 +927,94 @@ test("reports reach the console, the club photo, leaving with your posts, and st
   assert.ok((await cleanUpStaleUploads()) >= 1);
   assert.equal((await pool.query(`SELECT 1 FROM clubs.media WHERE id = $1`, [stale])).rows.length, 0);
 });
+
+// ── Club routines (build step 3) ────────────────────────────────────────
+
+const ROUTINE = `id title kind weekdays activityType activityLabel minDistanceKm minMinutes clubName exercises{ exerciseId name sets reps }`;
+const CREATE_ROUTINE = `mutation($c:ID!,$i:ClubRoutineInput!){ createClubRoutine(clubId:$c, input:$i){ ${ROUTINE} } }`;
+const MY_ROUTINES = `query($d:String!){ myClubRoutines(date:$d){ done routine{ id title } } }`;
+const PROGRESS = `query($id:ID!,$t:String!){ clubRoutineProgress(id:$id, today:$t, weeks:3){ weekStarts members{ displayName isMe streak doneToday weeks{ weekStart done scheduled } } } }`;
+let ato = "", runDay = "", circuit = "";
+
+test("routines: Admins only, checked input, at most 5 active per club", async () => {
+  ato = await userWithEmail("Ato", "ato@example.com");
+  mailer.sent.length = 0;
+  await ok(`mutation($c:ID!,$e:[String!]!){ inviteToClub(clubId:$c, emails:$e){ id } }`, { c: feedClub, e: ["ato@example.com"] }, abena);
+  await ok(JOIN, { t: tokenIn(lastMailTo("ato@example.com")!.text), c: true }, ato);
+
+  const run = { title: "Tuesday is run day", kind: "ACTIVITY", weekdays: [weekdayOf(today)], activityType: "RUN", minDistanceKm: 5 };
+  assert.equal((await gql(CREATE_ROUTINE, { c: feedClub, i: run }, kwame)).errors?.[0].extensions.code, "FORBIDDEN", "coaches set challenges, not routines");
+  const bad = async (i: object) => (await gql(CREATE_ROUTINE, { c: feedClub, i: { ...run, ...i } }, abena)).errors?.[0].message;
+  assert.match(await bad({ weekdays: [] }), /at least one day/);
+  assert.match(await bad({ weekdays: [7] }), /at least one day/);
+  assert.match(await bad({ activityType: "LIFTING" }), /Pick the activity/);
+  assert.match(await bad({ activityType: "FOOTBALL" }), /doesn't take a distance/);
+  assert.match(await bad({ kind: "WORKOUT", exercises: [] }), /Add 1 to 15 exercises/);
+  assert.match(await bad({ title: "x" }), /2 to 60/);
+
+  const made = (await ok(CREATE_ROUTINE, { c: feedClub, i: run }, abena)).createClubRoutine;
+  runDay = made.id;
+  assert.deepEqual([made.activityLabel, made.minDistanceKm, made.clubName, made.exercises], ["Running", 5, "Gym Friends", []]);
+
+  const ex = (await ok(`{ exercises { id name } }`)).exercises;
+  const wk = { title: "Office circuit", kind: "WORKOUT", weekdays: [0, 1, 2, 3, 4, 5, 6], exercises: [{ exerciseId: bench, sets: 3, reps: 10 }, { exerciseId: squat, sets: 2, reps: 12 }] };
+  assert.match((await gql(CREATE_ROUTINE, { c: feedClub, i: { ...wk, exercises: [...wk.exercises, { exerciseId: bench, sets: 1, reps: 1 }] } }, abena)).errors?.[0].message, /only be in a routine once/);
+  const c = (await ok(CREATE_ROUTINE, { c: feedClub, i: wk }, abena)).createClubRoutine;
+  circuit = c.id;
+  assert.deepEqual(c.exercises.map((e: any) => [e.name, e.sets, e.reps]), [[ex.find((e: any) => e.id === bench).name, 3, 10], [ex.find((e: any) => e.id === squat).name, 2, 12]]);
+
+  const extra = [];
+  for (let i = 0; i < 3; i++) extra.push((await ok(CREATE_ROUTINE, { c: feedClub, i: { ...run, title: `Walk ${i}`, activityType: "WALK", minDistanceKm: null } }, abena)).createClubRoutine.id);
+  assert.match((await gql(CREATE_ROUTINE, { c: feedClub, i: { ...run, title: "Sixth" } }, abena)).errors?.[0].message, /up to 5 routines/);
+  await ok(`mutation($id:ID!){ archiveClubRoutine(id:$id) }`, { id: extra[0] }, abena);
+  const listed = (await ok(`query($id:ID!){ club(id:$id){ routineLimit routines{ id } } }`, { id: feedClub }, ato)).club;
+  assert.deepEqual([listed.routineLimit, listed.routines.length], [5, 4], "ending one frees a slot");
+
+  const UPDATE = `mutation($id:ID!,$i:ClubRoutineInput!){ updateClubRoutine(id:$id, input:$i){ title minDistanceKm } }`;
+  assert.match((await gql(UPDATE, { id: runDay, i: { ...wk } }, abena)).errors?.[0].message, /can't switch/);
+  assert.equal((await gql(UPDATE, { id: runDay, i: run }, ato)).errors?.[0].extensions.code, "FORBIDDEN");
+  assert.deepEqual((await ok(UPDATE, { id: runDay, i: { ...run, title: "Run day", minDistanceKm: 5 } }, abena)).updateClubRoutine, { title: "Run day", minDistanceKm: 5 });
+  for (const id of extra.slice(1)) await ok(`mutation($id:ID!){ archiveClubRoutine(id:$id) }`, { id }, abena);
+});
+
+test("activity routines tick themselves from the log, and untick if the activity goes", async () => {
+  const LOG_ACT = `mutation($i:LogActivityInput!){ logActivity(input:$i){ id } }`;
+  const doneOf = async (id: string) => (await ok(MY_ROUTINES, { d: today }, ato)).myClubRoutines.find((r: any) => r.routine.id === id)?.done;
+  assert.equal(await doneOf(runDay), false);
+  await ok(LOG_ACT, { i: { performedOn: today, activityType: "RUN", durationMinutes: 25, distanceKm: 4 } }, ato);
+  assert.equal(await doneOf(runDay), false, "4 km doesn't meet the 5 km bar");
+  const run = (await ok(LOG_ACT, { i: { performedOn: today, activityType: "RUN", durationMinutes: 28, distanceKm: 5.2 } }, ato)).logActivity.id;
+  assert.equal(await doneOf(runDay), true);
+
+  const p = (await ok(PROGRESS, { id: runDay, t: today }, kwame)).clubRoutineProgress;
+  assert.equal(p.weekStarts.length, 3);
+  const mine = p.members.find((m: any) => m.displayName === "Ato");
+  assert.deepEqual([mine.streak, mine.doneToday, mine.weeks[2]], [1, true, { weekStart: mondayOf(today), done: 1, scheduled: 1 }]);
+  assert.equal(p.members[0].displayName, "Ato", "longest streak first");
+  assert.deepEqual(p.members.filter((m: any) => m.displayName !== "Ato").map((m: any) => m.streak), [0, 0]);
+  assert.equal((await ok(PROGRESS, { id: runDay, t: today }, outsider)).clubRoutineProgress, null);
+
+  await ok(`mutation($id:ID!){ deleteActivity(id:$id) }`, { id: run }, ato);
+  assert.equal(await doneOf(runDay), false, "deleting the run unticks it");
+});
+
+test("workout routines are logged as a session, once a day", async () => {
+  const LOG = `mutation($r:ID!,$d:String!,$m:Int,$w:[ClubRoutineWeightInput!]){ logClubRoutineWorkout(routineId:$r, date:$d, durationMinutes:$m, weights:$w){ done routine{ id } } }`;
+  assert.match((await gql(LOG, { r: runDay, d: today }, ato)).errors?.[0].message, /ticks itself/);
+  assert.match((await gql(LOG, { r: circuit, d: addDaysIso(today, -5) }, ato)).errors?.[0].message, /today or yesterday/);
+  assert.equal((await gql(LOG, { r: circuit, d: today }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+  const logged = (await ok(LOG, { r: circuit, d: today, m: 20, w: [{ exerciseId: bench, weightKg: 20 }] }, ato)).logClubRoutineWorkout;
+  assert.equal(logged.done, true);
+  assert.match((await gql(LOG, { r: circuit, d: today }, ato)).errors?.[0].message, /already logged/);
+
+  const hist = (await ok(`{ workoutHistory(limit: 1) { setCount volumeKg durationMinutes notes } }`, {}, ato)).workoutHistory[0];
+  assert.deepEqual([hist.setCount, hist.volumeKg, hist.durationMinutes, hist.notes], [5, 600, 20, "Club routine: Office circuit"], "3×10 at 20 kg, plus 2×12 bodyweight");
+  const p = (await ok(PROGRESS, { id: circuit, t: today }, abena)).clubRoutineProgress;
+  assert.deepEqual(p.members.find((m: any) => m.displayName === "Ato").weeks.at(-1).done, 1);
+  assert.equal(p.members.find((m: any) => m.isMe).displayName, "Abena");
+
+  // Leaving takes the routines off Today.
+  await ok(`mutation($c:ID!){ leaveClub(clubId:$c) }`, { c: feedClub }, ato);
+  assert.deepEqual((await ok(MY_ROUTINES, { d: today }, ato)).myClubRoutines, []);
+  assert.ok(!(await ok(PROGRESS, { id: circuit, t: today }, abena)).clubRoutineProgress.members.some((m: any) => m.displayName === "Ato"));
+});

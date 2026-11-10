@@ -604,3 +604,9 @@ export async function listActivityLogsSince(userId: string, fromIso: string, lim
   );
   return rows.map(mapActivity);
 }
+
+export async function findExercisesByIds(ids: string[]): Promise<ExerciseRow[]> {
+  if (!ids.length) return [];
+  const { rows } = await pool.query(`SELECT * FROM tracking.exercises WHERE id = ANY($1::uuid[])`, [ids]);
+  return rows.map(mapExercise);
+}

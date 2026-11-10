@@ -3,6 +3,7 @@ import { assertIsoDate, badInput } from "../../shared/errors.js";
 import { ACTIVITY_TYPES, estimateActivityKcal, type Effort } from "../planning/engine/index.js";
 import { getIntake } from "../planning/planning.repository.js";
 import {
+  findExercisesByIds,
   findTemplateName,
   getActivityLog,
   getWorkoutSession,
@@ -186,3 +187,6 @@ export async function weightChangeSinceStart(userId: string): Promise<number | n
   if (!latest || start == null) return null;
   return Math.round((latest.weightKg - start) * 10) / 10;
 }
+
+/** Catalogue exercises by id (Clubs: workout routines). */
+export const exercisesByIds = (ids: string[]) => findExercisesByIds(ids);

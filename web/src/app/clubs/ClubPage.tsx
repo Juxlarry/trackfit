@@ -11,6 +11,7 @@ import { checkClubFile, useClubUpload } from "../../lib/clubMedia";
 import { timeAgo } from "../../lib/clubFormat";
 import { Composer } from "./Composer";
 import { PostCard } from "./PostBits";
+import { RoutinesTab } from "./Routines";
 import { ChipGroup, OptionList } from "../../components/ui/Options";
 import { Sheet } from "../../components/ui/Sheet";
 import { useToast } from "../../components/ui/Toast";
@@ -44,8 +45,8 @@ export function ClubPage() {
   return <ClubView club={club} />;
 }
 
-type Tab = "feed" | "members" | "club";
-const TABS: { id: Tab; label: string }[] = [{ id: "feed", label: "Feed" }, { id: "members", label: "Members" }, { id: "club", label: "Club" }];
+type Tab = "feed" | "routines" | "members" | "club";
+const TABS: { id: Tab; label: string }[] = [{ id: "feed", label: "Feed" }, { id: "routines", label: "Routines" }, { id: "members", label: "Members" }, { id: "club", label: "Club" }];
 
 function ClubView({ club }: { club: ClubDto }) {
   const [params, setParams] = useSearchParams();
@@ -70,6 +71,7 @@ function ClubView({ club }: { club: ClubDto }) {
       </div>
 
       {tab === "feed" && <Feed club={club} />}
+      {tab === "routines" && <RoutinesTab club={club} />}
       {tab === "members" && <MembersTab club={club} onManage={setManage} />}
       {tab === "club" && <ClubTab club={club} />}
 

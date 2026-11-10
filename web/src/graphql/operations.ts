@@ -668,3 +668,53 @@ export const CONSOLE_REPORTS = gql`
 export const RESOLVE_CLUB_REPORT = gql`
   mutation ResolveClubReport($id: ID!, $remove: Boolean!) { resolveClubReport(id: $id, remove: $remove) }
 `;
+
+// ── Club routines ───────────────────────────────────────────────────────
+
+export const CLUB_ROUTINE_FIELDS = gql`
+  fragment ClubRoutineFields on ClubRoutine {
+    id clubId clubName title description kind weekdays activityType activityLabel minDistanceKm minMinutes createdAt
+    exercises { exerciseId name sets reps }
+  }
+`;
+
+export const CLUB_ROUTINES = gql`
+  query ClubRoutines($id: ID!) { club(id: $id) { id routineLimit routines { ...ClubRoutineFields } } }
+  ${CLUB_ROUTINE_FIELDS}
+`;
+
+export const MY_CLUB_ROUTINES = gql`
+  query MyClubRoutines($date: String!) { myClubRoutines(date: $date) { done routine { ...ClubRoutineFields } } }
+  ${CLUB_ROUTINE_FIELDS}
+`;
+
+export const CLUB_ROUTINE_PROGRESS = gql`
+  query ClubRoutineProgress($id: ID!, $today: String!) {
+    clubRoutineProgress(id: $id, today: $today, weeks: 6) {
+      weekStarts
+      routine { ...ClubRoutineFields }
+      members { userId displayName isMe streak doneToday weeks { weekStart done scheduled } }
+    }
+  }
+  ${CLUB_ROUTINE_FIELDS}
+`;
+
+export const CREATE_CLUB_ROUTINE = gql`
+  mutation CreateClubRoutine($clubId: ID!, $input: ClubRoutineInput!) { createClubRoutine(clubId: $clubId, input: $input) { ...ClubRoutineFields } }
+  ${CLUB_ROUTINE_FIELDS}
+`;
+
+export const UPDATE_CLUB_ROUTINE = gql`
+  mutation UpdateClubRoutine($id: ID!, $input: ClubRoutineInput!) { updateClubRoutine(id: $id, input: $input) { ...ClubRoutineFields } }
+  ${CLUB_ROUTINE_FIELDS}
+`;
+
+export const ARCHIVE_CLUB_ROUTINE = gql`
+  mutation ArchiveClubRoutine($id: ID!) { archiveClubRoutine(id: $id) }
+`;
+
+export const LOG_CLUB_ROUTINE_WORKOUT = gql`
+  mutation LogClubRoutineWorkout($routineId: ID!, $date: String!, $durationMinutes: Int, $weights: [ClubRoutineWeightInput!]) {
+    logClubRoutineWorkout(routineId: $routineId, date: $date, durationMinutes: $durationMinutes, weights: $weights) { done routine { id } }
+  }
+`;

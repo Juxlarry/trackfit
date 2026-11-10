@@ -12,6 +12,8 @@ import { clubsTypeDefs } from "../modules/clubs/clubs.schema.js";
 import { clubsResolvers } from "../modules/clubs/clubs.resolvers.js";
 import { feedTypeDefs } from "../modules/clubs/feed.schema.js";
 import { feedResolvers } from "../modules/clubs/feed.resolvers.js";
+import { routinesTypeDefs } from "../modules/clubs/routines.schema.js";
+import { routinesResolvers } from "../modules/clubs/routines.resolvers.js";
 
 /**
  * Schema composition: Identity defines the base Query/Mutation types,
@@ -21,7 +23,7 @@ import { feedResolvers } from "../modules/clubs/feed.resolvers.js";
  * (onboarding orchestration, architecture.md §3.1) and Nutrition; push
  * reminders add Notifications; Clubs v1 adds Clubs.
  */
-export const typeDefs = [identityTypeDefs, trackingTypeDefs, planningTypeDefs, nutritionTypeDefs, notificationsTypeDefs, clubsTypeDefs, feedTypeDefs];
+export const typeDefs = [identityTypeDefs, trackingTypeDefs, planningTypeDefs, nutritionTypeDefs, notificationsTypeDefs, clubsTypeDefs, feedTypeDefs, routinesTypeDefs];
 
 function mergeResolvers(...maps: Record<string, any>[]) {
   const merged: Record<string, any> = {};
@@ -33,4 +35,4 @@ function mergeResolvers(...maps: Record<string, any>[]) {
   return merged;
 }
 
-export const resolvers = mergeResolvers(identityResolvers, trackingResolvers, planningResolvers, nutritionResolvers, notificationsResolvers, clubsResolvers, feedResolvers);
+export const resolvers = mergeResolvers(identityResolvers, trackingResolvers, planningResolvers, nutritionResolvers, notificationsResolvers, clubsResolvers, feedResolvers, routinesResolvers);

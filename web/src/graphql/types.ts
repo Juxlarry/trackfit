@@ -339,3 +339,28 @@ export interface ConsoleReportDto {
   reportCount: number;
   item: { postId: string; commentId: string | null; kind: ClubPostKind; authorName: string; body: string; createdAt: string; deleted: boolean; media: { id: string; kind: "IMAGE" | "VIDEO"; url: string } | null };
 }
+
+// ── Club routines ───────────────────────────────────────────────────────
+
+export interface ClubRoutineDto {
+  id: string;
+  clubId: string;
+  clubName: string;
+  title: string;
+  description: string | null;
+  kind: "ACTIVITY" | "WORKOUT";
+  /** 0 = Monday … 6 = Sunday. */
+  weekdays: number[];
+  activityType: string | null;
+  activityLabel: string | null;
+  minDistanceKm: number | null;
+  minMinutes: number | null;
+  createdAt: string;
+  exercises: { exerciseId: string; name: string; sets: number; reps: number }[];
+}
+
+export interface ClubRoutineProgressDto {
+  weekStarts: string[];
+  routine: ClubRoutineDto;
+  members: { userId: string; displayName: string; isMe: boolean; streak: number; doneToday: boolean; weeks: { weekStart: string; done: number; scheduled: number }[] }[];
+}
