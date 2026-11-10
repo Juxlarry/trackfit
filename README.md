@@ -1,6 +1,6 @@
 # TrackFit
 
-Fitness tracker with a personalised onboarding quiz, a generated 6-week training program and meal plan, and tracking for workouts, activities, meals, weight and progress photos. The web app (React + TypeScript) is backed by a GraphQL API (Node.js + TypeScript, Apollo Server). Flutter mobile and the social layer (Clubs, see the [spec](#clubs-spec-planned)) are planned but not built yet.
+Fitness tracker with a personalised onboarding quiz, a generated 6-week training program and meal plan, and tracking for workouts, activities, meals, weight and progress photos. The web app (React + TypeScript) is backed by a GraphQL API (Node.js + TypeScript, Apollo Server). Flutter mobile and the social layer (Clubs, see [v1](#clubs-v1-first-release) and the [longer-term spec](#clubs-spec-planned)) are planned but not built yet.
 
 ## What's in MVP 2
 
@@ -193,9 +193,263 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 - **Web**: not deployed from GitHub. Build and run `firebase deploy` from `web/` (step 4 above).
 - **CI**: `.github/workflows/ci.yml` type-checks and tests both apps on every push and pull request.
 
+## Clubs v1 (first release)
+
+**Status: approved November 2026, nothing here is built yet.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
+
+### In and out
+
+**In v1**
+
+- App Owner and App Admins, with a console for creating clubs.
+- Joining by invite list or by a join link that an admin approves.
+- Club roles Admin (at most 3) and Coach (any number).
+- Coaches automatically see members' workouts and activities.
+- Sharing after a workout or activity, with an editable drafted summary.
+- Posts with a photo or video, plus comments and reactions.
+- Coach challenges and club routines.
+
+**Later**
+
+- Group analytics.
+- Payments, tips and Premium.
+- Personal-training requests and questionnaires.
+- Public clubs and club search.
+- Trainer certification badges.
+
+**Never:** coaches don't change anyone's plan.
+
+### The two target groups, checked against v1
+
+**Gym friends:** 3 members and 2 coaches who already have the physique.
+
+| What they need | How v1 covers it |
+|---|---|
+| Coaches as accountability stewards | Coaches see every workout and activity each member logs, on a page per member |
+| Checking form | A member attaches a video to their workout post, and coaches comment or reply with a short video |
+| Checking members push themselves | Coaches see sets, reps, weights and PRs, and can set up to 3 challenges a week each |
+| Coaches posting anything | Coach video posts on any topic: form, motivation, a story, a day at the gym |
+
+**Office buddies:** friends who use the office gym after work and run together on one day a week.
+
+| What they need | How v1 covers it |
+|---|---|
+| The routines they do together | Club routines set by Admins, optional for members |
+| A weekly run | A routine such as "Tuesday run day, at least 5 km", ticked automatically when they log a run of 5 km or more that day |
+| A record of their routines | Each routine's page shows who did it each week, with a streak for each person |
+| Tracking growth | Each person's own Progress tab, as today. Group-level growth is analytics, planned for later |
+| A group with no coach | An Admin can also hold the Coach role, so challenges are still available |
+
+### App Owner and App Admins
+
+- **Two app-wide roles,** separate from club roles, in `identity.app_roles`:
+  - **App Owner:** set once by script (`npm run app:owner -- you@example.com`).
+  - **App Admins:** added and removed by the App Owner only.
+- **The "special area" is an admin console at `/console`,** shown only to those accounts, and the API checks the role on every call. It isn't protected by a shared passcode, because a passcode can be passed around and can't be withdrawn from one person.
+- **Only the App Owner and App Admins create clubs.** Creating one takes a name, a description, an optional photo, and the email of the person who'll run it. That person becomes the club's first Admin when they join, and can be the creator themselves.
+- **The App Owner and App Admins can also be club members.** They join like anyone else, by invite or by naming themselves as first Admin, and can hold Admin or Coach roles there. Club roles come only from membership: an app role never grants a club role.
+- **The console can also:** list clubs with their member counts, close a club, and replace a club's Admins if a club is stuck.
+- **The console can't open anyone's logs, posts or media.** It only handles reported posts. An App Admin who is also a member of a club sees exactly what their club role allows, and nothing more.
+
+### Joining
+
+There are two ways in. Both are set up by club Admins, or from the console when a club is created.
+
+| Way in | How it works |
+|---|---|
+| **Invite list** | Admins add emails. Each person gets an email with a link, and also sees the invite in the app when they sign in with that address. They join straight away |
+| **Join link** | Admins create or turn off a link, which expires after 7 days and has a use limit. Whoever opens it signs up or signs in, gives their name, and waits for an Admin to approve them |
+
+- **Email invites need a real email provider,** so v1 adds Resend behind the existing `Mailer` interface (`MAIL_PROVIDER=resend`). Admins also get an email and push notification when someone is waiting for approval.
+- **Resend setup:** the App Owner has an existing Resend account.
+  - Add TrackFit's sending domain there and publish the DNS records Resend asks for, so mail isn't marked as spam.
+  - Put `RESEND_API_KEY` and `MAIL_FROM` (an address on that domain) in Render as secret settings, never in git.
+  - The welcome email will start going out for real too, once the provider is switched on.
+- **An invite only counts for a verified email.** An email/password account can be created with an address the person doesn't own.
+- **New users take the existing quiz and health check, then land in the club.** The invite is kept with the onboarding draft so it survives the quiz. Someone the health check stops gets no plan and can't use the app, as today. That limitation is accepted for v1.
+- **Before joining, the screen says plainly** that the club's coaches will see the workouts and activities they log. They must accept, and that acceptance is recorded as consent.
+- **The Clubs tab appears only for club members** (including anyone waiting for approval) and App Admins. Everyone else keeps seeing the current "Clubs join this menu" note.
+- **A club holds up to 50 members for now.**
+
+### Club roles
+
+Everyone in a club is a member. Coach and Admin are roles added on top, and one person can hold both.
+
+| Action | Member | Coach | Admin |
+|---|---|---|---|
+| Post, comment, react, take challenges, log routines | Yes | Yes | Yes |
+| See every member's workouts and activities | | Yes | |
+| Set challenges (up to 3 per coach per week) | | Yes | |
+| Approve joins, remove members | | | Yes |
+| Make or remove Admins and Coaches | | | Yes |
+| Set club routines, edit the club, delete any post or comment | | | Yes |
+
+- **At most 3 Admins, always at least 1.** The last Admin can't leave or step down until they've made someone else an Admin. If nobody else is left, the App Owner closes the club.
+- **Enforced in Postgres:** the club row is locked during the change, so two Admins leaving at the same moment can't both succeed. A test covers this race.
+- **Coaches are members too,** so other coaches see a coach's own workouts as well.
+- **When a coach loses the role or leaves,** they stop seeing members' logs at once.
+
+### What coaches see
+
+- **Without the member posting anything:**
+  - every workout: exercises, sets, reps, weights, duration and PRs;
+  - every activity: type, duration, distance, pace or speed, heart rate and effort.
+- **From when:** logs from the day the member joined the club onward.
+- **Never, unless the member posts it:** food, water, weight, photos, plan details and health answers.
+- **The Members page** lists each member's recent workouts and activities, PRs, sessions per week and the challenges they've taken.
+- **All access goes through one server check:** the viewer must be a coach, and the member active, in the same club. It ends the moment either one leaves.
+
+### Posts
+
+| Post | Comes from | Shows |
+|---|---|---|
+| **Workout** | The prompt after a workout, or the post composer | Summary text, optional photo or video, and the full workout to open |
+| **Run or jog** | The prompt after logging the activity, or the composer | Distance, time, pace (min/km), optional photo such as a route screenshot |
+| **Cycling** | Same | Distance, time, average speed (km/h), optional photo |
+| **Other activity** | Same | Type, time, distance if any, optional photo |
+| **Progress or gains** | Composer | Text and photo. The member can add a weight change from their log, such as "−2.4 kg since Day 1" |
+| **Meal** | Composer | Text and photo |
+| **Challenge win** | The prompt after finishing a challenge | The result and proof |
+| **Coach video** | Coaches | A video and caption on any topic |
+
+- **Media:** one photo (up to 10 MB) or one video per post.
+  - Member videos are up to 30 s and 50 MB, the app's current limits.
+  - Coach videos are up to 60 s.
+- **Opening a workout post** shows the exercises with sets, reps and weights, the duration, PRs, and any video posted with it. Weights appear in the viewer's own units.
+- **Anyone in the club can react and comment.** Coaches can also reply with a 30-second video.
+- **Members can edit or delete their own posts,** and Admins can delete any. Anyone can report a post to the App Admins.
+- **Leaving a club keeps a member's posts,** with an option to delete them on the way out.
+- **The feed** is newest first, with filters for All, Wins, Coach videos and Challenges.
+
+### Sharing after a workout or activity
+
+1. **The prompt:** the existing "Workout done" sheet in `SessionPage` gains a card asking "Share with <club>?", with a drafted summary. For example: "Push day done in 52 min: 5 exercises, 18 sets, 4,350 kg moved. New best: bench press 80 kg × 5."
+2. **What the draft includes:** PRs only from `HEAVIEST_SET` and `ESTIMATED_1RM`, since `MOST_REPS_AT_WEIGHT` is noisy, with weights in the member's units.
+3. **The buttons:**
+   - **Post**, which shares the draft as it is.
+   - **Edit**, to change the text, add a photo or video, and pick clubs if the member is in more than one.
+   - **Not now**, which shares nothing.
+4. **Activities get the same prompt** after they're logged. For example: "Ran 5.2 km in 28:40 (5:31 /km)."
+5. **Nothing posts until the member taps Post.** Each club has an "Ask me to share after workouts" setting the member can turn off.
+
+The old `shareToClubs` flag isn't used. Posts replace it.
+
+### Coach challenges
+
+**What a challenge has**
+
+- **Basics:** a title, a description, and Daily or Weekly. It runs from a start to an end date, by default this week.
+- **Optional video:** a coach can explain the challenge in a short video. The title and kind are still required, so the app knows where to show it.
+- **Proof:** always required, as a photo or video.
+
+| Kind | Coach sets | Example | Result |
+|---|---|---|---|
+| **Workout** | Exercises from the catalogue with sets and reps, and an optional time limit | "This circuit in 20 minutes" | Time taken or reps, plus proof |
+| **Activity** | Type and distance or time | "Run 3 km" | Taken from the logged activity, plus proof |
+| **Food** | A food from the food list or typed in, and an amount | "A 50 g bowl of salad every day" | Ticked while logging food, plus proof |
+| **Water** | A daily amount | "Drink 500 ml of water daily" | The day's logged water reaches the amount, plus proof |
+
+**The limit:** each coach can set at most 3 challenges per week. Weeks run Monday to Sunday in the club's time zone, Africa/Accra by default. The API enforces this.
+
+**How a member takes part**
+
+1. **Pop-up:** the first time a member opens the app each day, one sheet lists the club challenges they haven't joined or declined. Tapping one shows the details and any video.
+2. **Choosing:**
+   - **Take on challenge:** the member joins.
+   - **Not for me:** that challenge stops appearing.
+   - **Closing the sheet:** the challenge appears again the next day.
+3. **Where a joined challenge shows up:**
+   - **Workout challenges** appear in the day's session as an extra block after the planned exercises, with a countdown when there's a time limit. On a rest day they appear on Today as a short session of their own.
+   - **Activity challenges** appear in the activity logger as "Log for this challenge".
+   - **Food challenges** appear in the food logging sheet on Fuel as a quick option, such as "Challenge: 50 g salad".
+   - **Water challenges** appear on the water tracker with the target. If the member hasn't turned water tracking on, it shows anyway while the challenge runs.
+4. **Proof:** "Submit result" is prefilled from the log where possible, and needs a photo or video.
+   - A daily challenge needs proof each day.
+   - A weekly challenge needs it once during the week.
+5. **Finishing:** proof goes on the challenge's page, not the feed. When the member completes the challenge (every day of a daily one, or the single entry of a weekly one), they're asked to post a win to the feed, with drafted text.
+
+**The challenge page** shows the details and video, who joined, each day's entries, and progress such as "5 of 7 days". Members can comment there.
+
+**Notifications:** members get a push notification when a coach posts a challenge. This is a new kind, which members can turn off.
+
+### Club routines
+
+Routines are set by Admins, recur, and are optional for members. Unlike challenges, they need no proof, have no weekly cap and don't pop up.
+
+| Kind | Example | How it's done |
+|---|---|---|
+| **Activity** | "Tuesday is run day: at least 5 km" | Ticked automatically when the member logs a matching activity that day |
+| **Workout** | "Thursday office circuit" | The member logs it as a session from the routine |
+
+- **On Today:** on its days, a routine appears as "Club routine: Tuesday run, 5 km", with a button to log it.
+- **Frequency:** a routine repeats on chosen weekdays or every day.
+- **The routine's page** shows who did it each week and each person's streak.
+- **Plans don't change:** a routine adds to the day and never alters anyone's plan.
+- **Limit:** up to 5 active routines per club.
+
+### Privacy and safety
+
+- **Media stays inside the club.** Club photos and videos go in Firebase Storage under `clubs/{clubId}/`, and are uploaded and viewed through short-lived signed URLs from the API. Storage rules can't check club membership, so the files are never public.
+- **Consent is recorded:** joining and every role change are logged.
+- **Safety basics:** reporting, deleting posts and removing members are in v1 from the start.
+- **Account deletion,** when it's built, must keep the last-Admin rule.
+
+### Technical outline
+
+- **Backend:**
+  - A `clubs` module (Postgres schema `clubs`) with the usual repository, service, resolvers and schema files.
+  - `identity.app_roles` for the App Owner and App Admins.
+  - A real email provider.
+  - `notifications.in_app_notifications`, with pushes sent through the existing push code.
+- **Tables:**
+  - `clubs`, `memberships` (Admin and Coach flags, status, joined date, consent date), `invites`, `join_links`;
+  - `posts` (linked session, activity or challenge), `post_media`, `comments`, `reactions`, `reports`;
+  - `challenges`, `challenge_participants`, `challenge_entries`, `routines`, `routine_completions`.
+- **Reading other modules:** Clubs reads workouts and activities through `tracking` service functions, with no direct table access.
+- **Events:**
+  - `WorkoutLogged` and `ActivityLogged` tick matching routines and challenge results.
+  - `MilestoneAchieved` feeds PRs into the drafted summary.
+- **Web:**
+  - A Clubs tab, `/clubs` and `/clubs/:id` with Feed, Challenges, Routines and Members.
+  - `/console` for the App Owner and Admins.
+  - The challenge pop-up on Today, the share card and challenge block in `SessionPage`, and challenge options in the food sheet, water tracker and activity logger.
+- **Emergency stop:** setting `CLUBS_ENABLED=false` hides Clubs everywhere.
+- **Tests:**
+  - At most 3 Admins and never 0, including the race.
+  - At most 3 challenges per coach per week.
+  - A coach sees only members of a shared club, and loses access on removal.
+  - Non-members are rejected.
+  - An unverified email can't claim an invite.
+
+### Build order within v1
+
+Each step can go to testers on its own:
+
+1. **Console and clubs:** app roles, creating clubs, invites, join links and approval, club roles.
+2. **Feed:** posts, sharing after workouts and activities, media, comments and reactions, the coaches' Members page.
+3. **Club routines.**
+4. **Challenges:** creating them, the pop-up, showing them in sessions, Fuel, water and the activity logger, proof, wins.
+
+### Approved defaults
+
+Signed off by the App Owner in November 2026, in addition to the decisions written into the sections above:
+
+1. Coaches see logs from the day a member joined the club, not their full history.
+2. A join link expires after 7 days.
+3. A club holds up to 50 members, for now.
+4. Each post has one photo or one video. Member videos are up to 30 s, coach videos up to 60 s.
+5. Coaches' own workouts are visible to the club's other coaches.
+6. A water challenge's amount is the day's total logged water, not water on top of the daily target.
+7. Only coaches set challenges. An Admin who wants to set one gives themselves the Coach role.
+8. A club can have up to 5 active routines.
+9. Posts stay when a member leaves, unless they choose to delete them.
+10. App Admins can't see club content, except posts reported to them.
+11. Resend is the email provider, using the App Owner's existing account with TrackFit added as a domain.
+12. App Owner and App Admins can be members of clubs, with club roles granted the same way as for anyone else.
+
 ## Clubs spec (planned)
 
-**Status: draft, nothing here is built.** Build on the `feature/social-clubs` branch, not `main`, because a push to `main` redeploys the API. Items marked **(proposed)** are defaults filling gaps in the brief; agreed and open choices are listed under [Decisions](#decisions). Prices and percentages are starting points to test.
+**Status: draft for later releases, nothing here is built.** The first release is [Clubs v1](#clubs-v1-first-release), which replaces the access gate, club creation and coach visibility described here. Build on the `feature/social-clubs` branch, not `main`, because a push to `main` redeploys the API. Items marked **(proposed)** are defaults filling gaps in the brief; agreed and open choices are listed under [Decisions](#decisions). Prices and percentages are starting points to test.
 
 ### Goal
 
