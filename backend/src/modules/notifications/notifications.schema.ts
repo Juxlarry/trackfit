@@ -12,12 +12,16 @@ export const notificationsTypeDefs = /* GraphQL */ `
     progressPhotos: Boolean!
     "08:00 the day after a planned session with no workout logged."
     missedSession: Boolean!
+    "When a coach sets a new challenge in one of your clubs."
+    clubChallenges: Boolean!
   }
 
   input ReminderPrefsInput {
     weighIn: Boolean!
     progressPhotos: Boolean!
     missedSession: Boolean!
+    "Left out: unchanged."
+    clubChallenges: Boolean
   }
 
   input PushSubscriptionInput {

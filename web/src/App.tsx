@@ -24,6 +24,7 @@ const ClubPage = lazy(() => import("./app/clubs/ClubPage").then((m) => ({ defaul
 const PostPage = lazy(() => import("./app/clubs/PostPage").then((m) => ({ default: m.PostPage })));
 const MemberLogPage = lazy(() => import("./app/clubs/MemberLogPage").then((m) => ({ default: m.MemberLogPage })));
 const RoutinePage = lazy(() => import("./app/clubs/RoutinePage").then((m) => ({ default: m.RoutinePage })));
+const ChallengePage = lazy(() => import("./app/clubs/ChallengePage").then((m) => ({ default: m.ChallengePage })));
 const ConsolePage = lazy(() => import("./app/clubs/ConsolePage").then((m) => ({ default: m.ConsolePage })));
 // MVP 1 screens (and recharts).
 const WeightPage = lazy(() => import("./pages/WeightPage").then((m) => ({ default: m.WeightPage })));
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/clubs/:id/posts/:postId" element={<PostPage />} />
         <Route path="/clubs/:id/members/:userId" element={<MemberLogPage />} />
         <Route path="/clubs/:id/routines/:routineId" element={<RoutinePage />} />
+        <Route path="/clubs/:id/challenges/:challengeId" element={<ChallengePage />} />
         <Route path="/console" element={<ConsolePage />} />
         <Route path="/weight" element={<Legacy><WeightPage /></Legacy>} />
         <Route path="/workouts" element={<Legacy><WorkoutsPage /></Legacy>} />

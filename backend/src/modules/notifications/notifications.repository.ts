@@ -9,21 +9,35 @@ export interface PushSubscriptionRow {
 
 export type ReminderKind = "TRAINING_DAY" | "PLAN_START_EVE" | "WEIGH_IN" | "PROGRESS_PHOTO" | "MISSED_SESSION" | "CHECKIN_READY";
 
-export interface ReminderPrefsRow { weighIn: boolean; progressPhotos: boolean; missedSession: boolean }
+export interface ReminderPrefsRow { weighIn: boolean; progressPhotos: boolean; missedSession: boolean; clubChallenges: boolean }
 
 /** No row means everything is on. */
 export async function getReminderPrefs(userId: string): Promise<ReminderPrefsRow> {
-  const { rows } = await pool.query(`SELECT weigh_in, progress_photos, missed_session FROM notifications.reminder_prefs WHERE user_id = $1`, [userId]);
+  const { rows } = await pool.query(`SELECT weigh_in, progress_photos, missed_session, club_challenges FROM notifications.reminder_prefs WHERE user_id = $1`, [userId]);
   const r = rows[0];
-  return r ? { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session } : { weighIn: true, progressPhotos: true, missedSession: true };
+  return r
+    ? { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session, clubChallenges: r.club_challenges }
+    : { weighIn: true, progressPhotos: true, missedSession: true, clubChallenges: true };
 }
 
 export async function setReminderPrefs(userId: string, p: ReminderPrefsRow) {
   await pool.query(
-    `INSERT INTO notifications.reminder_prefs (user_id, weigh_in, progress_photos, missed_session) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (user_id) DO UPDATE SET weigh_in = $2, progress_photos = $3, missed_session = $4, updated_at = now()`,
-    [userId, p.weighIn, p.progressPhotos, p.missedSession],
+    `INSERT INTO notifications.reminder_prefs (user_id, weigh_in, progress_photos, missed_session, club_challenges) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET weigh_in = $2, progress_photos = $3, missed_session = $4, club_challenges = $5, updated_at = now()`,
+    [userId, p.weighIn, p.progressPhotos, p.missedSession, p.clubChallenges],
   );
+}
+
+/** Of these users, those who want a push when a coach sets a club challenge (on unless turned off). */
+export async function usersWantingChallengePush(userIds: string[]): Promise<string[]> {
+  if (!userIds.length) return [];
+  const { rows } = await pool.query(
+    `SELECT u.id FROM unnest($1::uuid[]) AS u(id)
+       LEFT JOIN notifications.reminder_prefs p ON p.user_id = u.id
+      WHERE COALESCE(p.club_challenges, true)`,
+    [userIds],
+  );
+  return rows.map((r) => r.id);
 }
 
 /** A device can only belong to one account: signing in as someone else moves it. */
@@ -86,7 +100,7 @@ export async function listReminderCandidates(): Promise<ReminderCandidate[]> {
   return rows.map((r) => ({
     userId: r.user_id, timeZone: r.time_zone, reminderTime: r.reminder_time,
     programId: r.program_id, cycleNumber: r.cycle_number, startDate: r.start_date, endDate: r.end_date,
-    prefs: { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session },
+    prefs: { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session, clubChallenges: r.club_challenges ?? true },
   }));
 }
 

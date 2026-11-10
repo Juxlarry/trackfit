@@ -315,6 +315,7 @@ export interface ClubPostDto {
   workout: ClubWorkoutDto | null;
   activity: ClubActivityDto | null;
   reactions: { reaction: ClubReaction; count: number }[];
+  challenge: { id: string; title: string } | null;
   comments?: ClubCommentDto[];
 }
 
@@ -328,6 +329,8 @@ export interface ClubMemberOverviewDto {
   prs: number;
   lastWorkoutAt: string | null;
   lastActivityOn: string | null;
+  challengesTaken: number;
+  challengesCompleted: number;
 }
 
 export interface ConsoleReportDto {
@@ -363,4 +366,68 @@ export interface ClubRoutineProgressDto {
   weekStarts: string[];
   routine: ClubRoutineDto;
   members: { userId: string; displayName: string; isMe: boolean; streak: number; doneToday: boolean; weeks: { weekStart: string; done: number; scheduled: number }[] }[];
+}
+
+export type ClubChallengeKind = "WORKOUT" | "ACTIVITY" | "FOOD" | "WATER";
+export type ClubChallengeCadence = "DAILY" | "WEEKLY";
+
+export interface ClubChallengeDto {
+  id: string;
+  clubId: string;
+  clubName: string;
+  title: string;
+  description: string | null;
+  cadence: ClubChallengeCadence;
+  kind: ClubChallengeKind;
+  startsOn: string;
+  endsOn: string;
+  state: "UPCOMING" | "RUNNING" | "FINISHED" | "ENDED";
+  createdAt: string;
+  totalPeriods: number;
+  joinedCount: number;
+  myAnswer: "JOINED" | "DECLINED" | null;
+  canEnd: boolean;
+  timeLimitMinutes: number | null;
+  activityType: string | null;
+  activityLabel: string | null;
+  minDistanceKm: number | null;
+  minMinutes: number | null;
+  foodKey: string | null;
+  foodName: string | null;
+  foodGrams: number | null;
+  foodUnit: string | null;
+  waterMl: number | null;
+  coach: ClubPersonDto;
+  video: ClubMediaDto | null;
+  exercises: { exerciseId: string; name: string; sets: number; reps: number }[];
+}
+
+export interface MyClubChallengeDto {
+  doneForPeriod: boolean;
+  done: number;
+  total: number;
+  completed: boolean;
+  winDraft: string | null;
+  challenge: ClubChallengeDto;
+}
+
+export interface ClubChallengeEntryDto {
+  id: string;
+  onDate: string;
+  periodStart: string;
+  resultSeconds: number | null;
+  resultReps: number | null;
+  distanceKm: number | null;
+  minutes: number | null;
+  waterMl: number | null;
+  note: string | null;
+  createdAt: string;
+  proof: ClubMediaDto | null;
+}
+
+export interface ClubChallengePageDto {
+  challenge: ClubChallengeDto;
+  mine: MyClubChallengeDto | null;
+  participants: { person: ClubPersonDto; done: number; total: number; completed: boolean; entries: ClubChallengeEntryDto[] }[];
+  comments: { id: string; body: string; createdAt: string; canDelete: boolean; author: ClubPersonDto }[];
 }

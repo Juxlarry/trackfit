@@ -60,7 +60,7 @@ const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.
 const inWindow = (minutes: number, from: number) => minutes >= from && minutes < from + WINDOW_MIN;
 
 export type ReminderPrefs = ReminderPrefsRow;
-export const DEFAULT_PREFS: ReminderPrefs = { weighIn: true, progressPhotos: true, missedSession: true };
+export const DEFAULT_PREFS: ReminderPrefs = { weighIn: true, progressPhotos: true, missedSession: true, clubChallenges: true };
 
 export interface ReminderPlan {
   reminderTime: string | null;

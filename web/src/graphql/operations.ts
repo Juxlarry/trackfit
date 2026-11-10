@@ -375,11 +375,11 @@ export const SEND_TEST_PUSH = gql`
 `;
 
 export const REMINDER_PREFS = gql`
-  query ReminderPrefs { reminderPrefs { weighIn progressPhotos missedSession } }
+  query ReminderPrefs { reminderPrefs { weighIn progressPhotos missedSession clubChallenges } }
 `;
 
 export const SET_REMINDER_PREFS = gql`
-  mutation SetReminderPrefs($input: ReminderPrefsInput!) { setReminderPrefs(input: $input) { weighIn progressPhotos missedSession } }
+  mutation SetReminderPrefs($input: ReminderPrefsInput!) { setReminderPrefs(input: $input) { weighIn progressPhotos missedSession clubChallenges } }
 `;
 
 export const CYCLE_CHECKIN = gql`
@@ -560,6 +560,7 @@ export const CLUB_POST_FIELDS = gql`
     workout { ...ClubWorkoutFields }
     activity { ...ClubActivityFields }
     reactions { reaction count }
+    challenge { id title }
   }
   ${CLUB_PERSON_FIELDS}
   ${CLUB_WORKOUT_FIELDS}
@@ -643,7 +644,7 @@ export const CLUB_SHARE_DRAFT = gql`
 
 export const CLUB_COACH_OVERVIEW = gql`
   query ClubCoachOverview($id: ID!) {
-    club(id: $id) { id coachOverview { member { userId displayName isAdmin isCoach joinedAt } sessionsPerWeek workouts activities prs lastWorkoutAt lastActivityOn } }
+    club(id: $id) { id coachOverview { member { userId displayName isAdmin isCoach joinedAt } sessionsPerWeek workouts activities prs lastWorkoutAt lastActivityOn challengesTaken challengesCompleted } }
   }
 `;
 
@@ -717,4 +718,84 @@ export const LOG_CLUB_ROUTINE_WORKOUT = gql`
   mutation LogClubRoutineWorkout($routineId: ID!, $date: String!, $durationMinutes: Int, $weights: [ClubRoutineWeightInput!]) {
     logClubRoutineWorkout(routineId: $routineId, date: $date, durationMinutes: $durationMinutes, weights: $weights) { done routine { id } }
   }
+`;
+
+// ── Club challenges ─────────────────────────────────────────────────────
+
+export const CLUB_CHALLENGE_FIELDS = gql`
+  fragment ClubChallengeFields on ClubChallenge {
+    id clubId clubName title description cadence kind startsOn endsOn state createdAt totalPeriods joinedCount myAnswer canEnd
+    timeLimitMinutes activityType activityLabel minDistanceKm minMinutes foodKey foodName foodGrams foodUnit waterMl
+    coach { ...ClubPersonFields }
+    video { id kind url durationSeconds }
+    exercises { exerciseId name sets reps }
+  }
+  ${CLUB_PERSON_FIELDS}
+`;
+
+export const MY_CLUB_CHALLENGE_FIELDS = gql`
+  fragment MyClubChallengeFields on MyClubChallenge { doneForPeriod done total completed winDraft challenge { ...ClubChallengeFields } }
+  ${CLUB_CHALLENGE_FIELDS}
+`;
+
+export const CLUB_CHALLENGES = gql`
+  query ClubChallenges($id: ID!) { club(id: $id) { id challengeQuota { limit usedThisWeek } challenges { ...ClubChallengeFields } } }
+  ${CLUB_CHALLENGE_FIELDS}
+`;
+
+export const MY_CLUB_CHALLENGES = gql`
+  query MyClubChallenges($date: String!) { myClubChallenges(date: $date) { ...MyClubChallengeFields } }
+  ${MY_CLUB_CHALLENGE_FIELDS}
+`;
+
+export const PENDING_CLUB_CHALLENGES = gql`
+  query PendingClubChallenges($date: String!) { pendingClubChallenges(date: $date) { ...ClubChallengeFields } }
+  ${CLUB_CHALLENGE_FIELDS}
+`;
+
+export const CLUB_CHALLENGE = gql`
+  query ClubChallenge($id: ID!) {
+    clubChallenge(id: $id) {
+      challenge { ...ClubChallengeFields }
+      mine { ...MyClubChallengeFields }
+      participants {
+        person { ...ClubPersonFields } done total completed
+        entries { id onDate periodStart resultSeconds resultReps distanceKm minutes waterMl note createdAt proof { id kind url durationSeconds } }
+      }
+      comments { id body createdAt canDelete author { ...ClubPersonFields } }
+    }
+  }
+  ${MY_CLUB_CHALLENGE_FIELDS}
+`;
+
+export const CREATE_CLUB_CHALLENGE = gql`
+  mutation CreateClubChallenge($clubId: ID!, $input: ClubChallengeInput!) { createClubChallenge(clubId: $clubId, input: $input) { ...ClubChallengeFields } }
+  ${CLUB_CHALLENGE_FIELDS}
+`;
+
+export const END_CLUB_CHALLENGE = gql`
+  mutation EndClubChallenge($id: ID!) { endClubChallenge(id: $id) }
+`;
+
+export const RESPOND_TO_CLUB_CHALLENGE = gql`
+  mutation RespondToClubChallenge($id: ID!, $join: Boolean!) { respondToClubChallenge(id: $id, join: $join) { id myAnswer joinedCount } }
+`;
+
+export const SUBMIT_CLUB_CHALLENGE_ENTRY = gql`
+  mutation SubmitClubChallengeEntry($challengeId: ID!, $input: ClubChallengeEntryInput!) {
+    submitClubChallengeEntry(challengeId: $challengeId, input: $input) { completed mine { ...MyClubChallengeFields } }
+  }
+  ${MY_CLUB_CHALLENGE_FIELDS}
+`;
+
+export const POST_CLUB_CHALLENGE_WIN = gql`
+  mutation PostClubChallengeWin($challengeId: ID!, $body: String) { postClubChallengeWin(challengeId: $challengeId, body: $body) { id } }
+`;
+
+export const COMMENT_ON_CLUB_CHALLENGE = gql`
+  mutation CommentOnClubChallenge($id: ID!, $body: String!) { commentOnClubChallenge(id: $id, body: $body) { comments { id } } }
+`;
+
+export const DELETE_CLUB_CHALLENGE_COMMENT = gql`
+  mutation DeleteClubChallengeComment($id: ID!) { deleteClubChallengeComment(id: $id) { comments { id } } }
 `;

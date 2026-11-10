@@ -1018,3 +1018,179 @@ test("workout routines are logged as a session, once a day", async () => {
   assert.deepEqual((await ok(MY_ROUTINES, { d: today }, ato)).myClubRoutines, []);
   assert.ok(!(await ok(PROGRESS, { id: circuit, t: today }, abena)).clubRoutineProgress.members.some((m: any) => m.displayName === "Ato"));
 });
+
+// ── Coach challenges (Clubs v1 step 4) ──────────────────────────────────
+
+const CHALLENGE = `id title kind cadence startsOn endsOn state totalPeriods joinedCount myAnswer canEnd clubName waterMl foodName foodGrams foodUnit
+  activityLabel minDistanceKm timeLimitMinutes coach{ displayName isMe } video{ kind } exercises{ name sets reps }`;
+const CREATE_CH = `mutation($c:ID!,$i:ClubChallengeInput!){ createClubChallenge(clubId:$c, input:$i){ ${CHALLENGE} } }`;
+const MINE = `doneForPeriod done total completed winDraft challenge{ id title }`;
+const MY_CH = `query($d:String!){ myClubChallenges(date:$d){ ${MINE} } }`;
+const PENDING = `query($d:String!){ pendingClubChallenges(date:$d){ id title myAnswer } }`;
+const RESPOND = `mutation($id:ID!,$j:Boolean!){ respondToClubChallenge(id:$id, join:$j){ id myAnswer joinedCount } }`;
+const ENTRY = `mutation($id:ID!,$i:ClubChallengeEntryInput!){ submitClubChallengeEntry(challengeId:$id, input:$i){ completed mine{ ${MINE} } } }`;
+const CH_PAGE = `query($id:ID!){ clubChallenge(id:$id){ challenge{ id title state } mine{ ${MINE} }
+  participants{ person{ displayName isMe } done total completed entries{ onDate waterMl distanceKm resultSeconds proof{ kind url } } }
+  comments{ id body canDelete author{ displayName } } } }`;
+let drink = "", run3k = "", salad = "", circuitCh = "", yaa = "", kobby = "";
+
+test("challenges setup: two new members, one with a plan", async () => {
+  yaa = await userWithEmail("Yaa", "yaa@example.com");
+  kobby = await userWithEmail("Kobby", "kobby@example.com");
+  mailer.sent.length = 0;
+  await ok(`mutation($c:ID!,$e:[String!]!){ inviteToClub(clubId:$c, emails:$e){ id } }`, { c: feedClub, e: ["yaa@example.com", "kobby@example.com"] }, abena);
+  for (const [id, email] of [[yaa, "yaa@example.com"], [kobby, "kobby@example.com"]]) await ok(JOIN, { t: tokenIn(lastMailTo(email)!.text), c: true }, id);
+  await ok(ONBOARD, { i: { displayName: "Yaa", screening: screeningClear, training, diet, startDate: today } }, yaa);
+});
+
+test("challenges: coaches only, checked input, at most 3 a week each, and a push to members", async () => {
+  const water = { title: "Drink 500 ml", cadence: "DAILY", kind: "WATER", waterMl: 500, startsOn: today, endsOn: today };
+  assert.equal((await gql(CREATE_CH, { c: feedClub, i: water }, yaa)).errors?.[0].extensions.code, "FORBIDDEN");
+  assert.match((await gql(CREATE_CH, { c: feedClub, i: water }, abena)).errors?.[0].message, /Only coaches set challenges/, "an Admin needs the Coach role too");
+  const bad = async (i: object) => (await gql(CREATE_CH, { c: feedClub, i: { ...water, ...i } }, kwame)).errors?.[0].message;
+  assert.match(await bad({ waterMl: 50 }), /100 and 10,000 ml/);
+  assert.match(await bad({ startsOn: addDaysIso(today, -1) }), /can't start in the past/);
+  assert.match(await bad({ endsOn: addDaysIso(today, 28) }), /up to 4 weeks/);
+  assert.match(await bad({ kind: "ACTIVITY", activityType: "RUN" }), /distance or a time/);
+  assert.match(await bad({ kind: "ACTIVITY", activityType: "FOOTBALL", minDistanceKm: 2 }), /doesn't take a distance/);
+  assert.match(await bad({ kind: "FOOD", foodKey: "pizza-from-mars", foodGrams: 50 }), /isn't in the list/);
+  assert.match(await bad({ kind: "WORKOUT", exercises: [] }), /Add 1 to 15/);
+
+  // Videos explaining a challenge: coaches only, and video only.
+  assert.equal((await gql(UPLOAD, { c: feedClub, p: "CHALLENGE", t: "video/mp4", s: 100, d: 20 }, yaa)).errors?.[0].extensions.code, "FORBIDDEN");
+  assert.match((await gql(UPLOAD, { c: feedClub, p: "CHALLENGE", t: "image/png", s: 100 }, kwame)).errors?.[0].message, /takes a video/);
+  const video = await upload(kwame, feedClub, "CHALLENGE", "video/mp4", 2000, 50);
+
+  // Kobby wants the push; Yaa turned it off.
+  const pushed: string[] = [];
+  setPushSender(async (sub) => { pushed.push(sub.endpoint); });
+  const SUB = `mutation($i:PushSubscriptionInput!){ subscribePush(input:$i) }`;
+  await ok(SUB, { i: { endpoint: "https://push.example.com/kobby", p256dh: "p", auth: "a", timeZone: "Africa/Accra" } }, kobby);
+  await ok(SUB, { i: { endpoint: "https://push.example.com/yaa", p256dh: "p", auth: "a", timeZone: "Africa/Accra" } }, yaa);
+  await ok(`mutation{ setReminderPrefs(input:{ weighIn:true, progressPhotos:true, missedSession:true, clubChallenges:false }){ clubChallenges } }`, {}, yaa);
+  assert.equal((await ok(`{ reminderPrefs { clubChallenges } }`, {}, kobby)).reminderPrefs.clubChallenges, true, "on by default");
+  // Leaving it out keeps it.
+  await ok(`mutation{ setReminderPrefs(input:{ weighIn:true, progressPhotos:true, missedSession:false }){ clubChallenges } }`, {}, yaa);
+  assert.equal((await ok(`{ reminderPrefs { clubChallenges } }`, {}, yaa)).reminderPrefs.clubChallenges, false);
+
+  const made = (await ok(CREATE_CH, { c: feedClub, i: { ...water, videoMediaId: video } }, kwame)).createClubChallenge;
+  drink = made.id;
+  assert.deepEqual([made.state, made.totalPeriods, made.coach.isMe, made.video.kind, made.myAnswer, made.canEnd], ["RUNNING", 1, true, "VIDEO", null, true]);
+  assert.deepEqual(pushed, ["https://push.example.com/kobby"]);
+
+  // Defaults: from today to that week's Sunday.
+  const run = (await ok(CREATE_CH, { c: feedClub, i: { title: "Run 3 km", cadence: "WEEKLY", kind: "ACTIVITY", activityType: "RUN", minDistanceKm: 3 } }, kwame)).createClubChallenge;
+  run3k = run.id;
+  assert.deepEqual([run.startsOn, run.endsOn, run.activityLabel, run.totalPeriods], [today, addDaysIso(mondayOf(today), 6), "Running", 1]);
+  const food = (await ok(CREATE_CH, { c: feedClub, i: { ...water, title: "Salad a day", kind: "FOOD", foodKey: "salad", foodGrams: 50, waterMl: null } }, kwame)).createClubChallenge;
+  salad = food.id;
+  assert.deepEqual([food.foodName, food.foodGrams, food.foodUnit], ["Salad (no dressing)", 50, "g"]);
+
+  assert.match((await gql(CREATE_CH, { c: feedClub, i: { ...water, title: "Fourth" } }, kwame)).errors?.[0].message, /3 challenges this week/);
+  const quota = (await ok(`query($id:ID!){ club(id:$id){ challengeQuota{ limit usedThisWeek } challenges{ id } } }`, { id: feedClub }, kwame)).club;
+  assert.deepEqual(quota.challengeQuota, { limit: 3, usedThisWeek: 3 });
+  assert.equal((await ok(`query($id:ID!){ club(id:$id){ challengeQuota{ limit } } }`, { id: feedClub }, yaa)).club.challengeQuota, null);
+
+  // The cap is per coach: an Admin who takes the Coach role has their own 3.
+  await ok(ROLES, { c: feedClub, u: abena, a: true, k: true }, abena);
+  const wk = { title: "Push-up ladder", cadence: "DAILY", kind: "WORKOUT", startsOn: today, endsOn: tomorrow, timeLimitMinutes: 20, exercises: [{ exerciseId: bench, sets: 2, reps: 10 }] };
+  const c = (await ok(CREATE_CH, { c: feedClub, i: wk }, abena)).createClubChallenge;
+  circuitCh = c.id;
+  assert.deepEqual([c.timeLimitMinutes, c.totalPeriods, c.exercises.length], [20, 2, 1]);
+});
+
+test("challenges: the pop-up, taking one on, and saying not for me", async () => {
+  const pending = async (u: string) => (await ok(PENDING, { d: today }, u)).pendingClubChallenges.map((c: any) => c.title).sort();
+  assert.deepEqual(await pending(kobby), ["Drink 500 ml", "Push-up ladder", "Run 3 km", "Salad a day"]);
+  assert.deepEqual(await pending(kwame), ["Push-up ladder"], "a coach isn't offered their own");
+  assert.deepEqual(await pending(outsider), []);
+
+  assert.equal((await ok(RESPOND, { id: run3k, j: false }, kobby)).respondToClubChallenge.myAnswer, "DECLINED");
+  assert.ok(!(await pending(kobby)).includes("Run 3 km"), "not for me: it stops appearing");
+  assert.equal((await gql(RESPOND, { id: drink, j: true }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+  for (const id of [drink, run3k, salad, circuitCh]) await ok(RESPOND, { id, j: true }, yaa);
+  assert.deepEqual(await pending(yaa), []);
+  assert.equal((await ok(RESPOND, { id: drink, j: true }, kobby)).respondToClubChallenge.joinedCount, 2);
+
+  const mine = (await ok(MY_CH, { d: today }, yaa)).myClubChallenges;
+  assert.equal(mine.length, 4);
+  assert.ok(mine.every((m: any) => !m.doneForPeriod && m.done === 0 && !m.completed && m.winDraft === null));
+});
+
+test("challenges: proof is checked against the log, and finishing offers a win post", async () => {
+  // Water: the day's total has to reach the amount, and proof is a photo or video.
+  const proof = () => upload(yaa, feedClub, "PROOF", "image/jpeg", 500);
+  assert.match((await gql(ENTRY, { id: drink, i: { date: today, mediaId: await proof() } }, yaa)).errors?.[0].message, /logged 0 ml so far/);
+  await ok(`mutation($d:String!){ setWater(date:$d, ml:600){ water{ ml } } }`, { d: today }, yaa);
+  assert.equal((await gql(ENTRY, { id: drink, i: { date: today, mediaId: await upload(yaa, feedClub, "POST", "image/jpeg", 10) } }, yaa)).errors?.[0].message, "That upload can't be used here.", "proof needs a PROOF upload");
+  const done = (await ok(ENTRY, { id: drink, i: { date: today, mediaId: await proof(), note: "Two bottles" } }, yaa)).submitClubChallengeEntry;
+  assert.deepEqual([done.completed, done.mine.done, done.mine.total, done.mine.doneForPeriod], [true, 1, 1, true]);
+  assert.equal(done.mine.winDraft, "Challenge done: Drink 500 ml.");
+  assert.match((await gql(ENTRY, { id: drink, i: { date: today, mediaId: await proof() } }, yaa)).errors?.[0].message, /already sent proof/);
+  assert.match((await gql(ENTRY, { id: run3k, i: { date: today, mediaId: await upload(kobby, feedClub, "PROOF", "image/jpeg", 10) } }, kobby)).errors?.[0].message, /Take on the challenge first/);
+
+  // The win post: in the club's feed, with a copy of the proof, once.
+  const WIN = `mutation($id:ID!,$b:String){ postClubChallengeWin(challengeId:$id, body:$b){ id kind body media{ kind } challenge{ title } } }`;
+  assert.match((await gql(WIN, { id: salad }, yaa)).errors?.[0].message, /Finish the challenge first/);
+  const win = (await ok(WIN, { id: drink }, yaa)).postClubChallengeWin;
+  assert.deepEqual([win.kind, win.body, win.media?.kind, win.challenge.title], ["CHALLENGE_WIN", "Challenge done: Drink 500 ml.", "IMAGE", "Drink 500 ml"]);
+  assert.match((await gql(WIN, { id: drink }, yaa)).errors?.[0].message, /already posted/);
+  const wins = (await ok(FEED, { id: feedClub, f: "CHALLENGES" }, kobby)).club.feed.posts;
+  assert.deepEqual(wins.map((p: any) => p.id), [win.id]);
+  assert.equal((await ok(MY_CH, { d: today }, yaa)).myClubChallenges.find((m: any) => m.challenge.id === drink).winDraft, null, "no draft once posted");
+  await ok(`mutation($id:ID!){ deleteClubPost(id:$id) }`, { id: win.id }, yaa);
+  const page = (await ok(CH_PAGE, { id: drink }, kobby)).clubChallenge;
+  assert.equal(page.participants[0].entries[0].proof.kind, "IMAGE", "deleting the win leaves the proof");
+
+  // Activity: from the logged activity, which has to meet the bar.
+  const LOG_ACT = `mutation($i:LogActivityInput!){ logActivity(input:$i){ id } }`;
+  const short = (await ok(LOG_ACT, { i: { performedOn: today, activityType: "RUN", durationMinutes: 15, distanceKm: 2.5 } }, yaa)).logActivity.id;
+  assert.match((await gql(ENTRY, { id: run3k, i: { date: today, mediaId: await proof() } }, yaa)).errors?.[0].message, /Log the activity first/);
+  assert.match((await gql(ENTRY, { id: run3k, i: { date: today, mediaId: await proof(), activityId: short } }, yaa)).errors?.[0].message, /doesn't meet the challenge/);
+  const run = (await ok(LOG_ACT, { i: { performedOn: today, activityType: "RUN", durationMinutes: 18, distanceKm: 3.1 } }, yaa)).logActivity.id;
+  assert.equal((await ok(ENTRY, { id: run3k, i: { date: today, mediaId: await proof(), activityId: run } }, yaa)).submitClubChallengeEntry.completed, true);
+
+  // Food from the list: logged on Fuel first.
+  assert.match((await gql(ENTRY, { id: salad, i: { date: today, mediaId: await proof() } }, yaa)).errors?.[0].message, /Log salad \(no dressing\) on Fuel/);
+  await ok(`mutation($i:LogFoodInput!){ logFood(input:$i){ eaten{ kcal } } }`, { i: { date: today, slot: "LUNCH", foodKey: "salad", grams: 50, quantity: 1 } }, yaa);
+  assert.equal((await ok(ENTRY, { id: salad, i: { date: today, mediaId: await proof() } }, yaa)).submitClubChallengeEntry.completed, true);
+
+  // Workout: inside the time limit, and logged as a session. Daily over two days, so not complete yet.
+  assert.match((await gql(ENTRY, { id: circuitCh, i: { date: today, mediaId: await proof() } }, yaa)).errors?.[0].message, /time it took or the reps/);
+  assert.match((await gql(ENTRY, { id: circuitCh, i: { date: today, mediaId: await proof(), resultSeconds: 25 * 60 } }, yaa)).errors?.[0].message, /over the 20-minute limit/);
+  const wk = (await ok(ENTRY, { id: circuitCh, i: { date: today, mediaId: await proof(), resultSeconds: 15 * 60, weights: [{ exerciseId: bench, weightKg: 20 }] } }, yaa)).submitClubChallengeEntry;
+  assert.deepEqual([wk.completed, wk.mine.done, wk.mine.total], [false, 1, 2]);
+  const hist = (await ok(`{ workoutHistory(limit: 1) { setCount volumeKg durationMinutes notes } }`, {}, yaa)).workoutHistory[0];
+  assert.deepEqual([hist.setCount, hist.volumeKg, hist.durationMinutes, hist.notes], [2, 400, 15, "Club challenge: Push-up ladder"]);
+  assert.match((await gql(ENTRY, { id: circuitCh, i: { date: addDaysIso(today, 5), mediaId: await proof(), resultReps: 20 } }, yaa)).errors?.[0].message, /runs from/);
+
+  // You can't drop out once you've sent proof.
+  assert.match((await gql(RESPOND, { id: circuitCh, j: false }, yaa)).errors?.[0].message, /can't drop out/);
+});
+
+test("challenges: the page, comments, the coaches' view, and ending one", async () => {
+  const page = (await ok(CH_PAGE, { id: circuitCh }, kobby)).clubChallenge;
+  assert.equal(page.mine, null, "Kobby hasn't taken it on");
+  assert.deepEqual(page.participants.map((p: any) => [p.person.displayName, p.done, p.total]), [["Yaa", 1, 2]]);
+  assert.equal(page.participants[0].entries[0].resultSeconds, 900);
+  assert.equal((await ok(CH_PAGE, { id: circuitCh }, outsider)).clubChallenge, null);
+
+  const COMMENT = `mutation($id:ID!,$b:String!){ commentOnClubChallenge(id:$id, body:$b){ comments{ id body canDelete } } }`;
+  const k = (await ok(COMMENT, { id: circuitCh, b: "Ladder done before breakfast" }, yaa)).commentOnClubChallenge.comments[0];
+  assert.equal(k.canDelete, true);
+  assert.equal((await ok(CH_PAGE, { id: circuitCh }, kobby)).clubChallenge.comments[0].canDelete, false);
+  assert.equal((await gql(`mutation($id:ID!){ deleteClubChallengeComment(id:$id){ comments{ id } } }`, { id: k.id }, kobby)).errors?.[0].extensions.code, "FORBIDDEN");
+  assert.deepEqual((await ok(`mutation($id:ID!){ deleteClubChallengeComment(id:$id){ comments{ id } } }`, { id: k.id }, abena)).deleteClubChallengeComment.comments, [], "Admins can delete any");
+
+  const overview = (await ok(`query($id:ID!){ club(id:$id){ coachOverview{ member{ displayName } challengesTaken challengesCompleted } } }`, { id: feedClub }, kwame)).club.coachOverview;
+  const e = overview.find((o: any) => o.member.displayName === "Yaa");
+  assert.deepEqual([e.challengesTaken, e.challengesCompleted], [4, 3]);
+
+  // Only its coach or an Admin can end it; then it leaves Today and the pop-up.
+  assert.equal((await gql(`mutation($id:ID!){ endClubChallenge(id:$id) }`, { id: circuitCh }, kwame)).errors?.[0].extensions.code, "FORBIDDEN");
+  await ok(`mutation($id:ID!){ endClubChallenge(id:$id) }`, { id: circuitCh }, abena);
+  assert.ok(!(await ok(MY_CH, { d: today }, yaa)).myClubChallenges.some((m: any) => m.challenge.id === circuitCh));
+  assert.equal((await ok(CH_PAGE, { id: circuitCh }, yaa)).clubChallenge.challenge.state, "ENDED");
+  assert.match((await gql(ENTRY, { id: circuitCh, i: { date: today, mediaId: await upload(yaa, feedClub, "PROOF", "image/jpeg", 10), resultReps: 20 } }, yaa)).errors?.[0].message, /has ended/);
+  assert.match((await gql(RESPOND, { id: circuitCh, j: true }, kobby)).errors?.[0].message, /is over/);
+});

@@ -138,6 +138,7 @@ export function PostCard({ post, clubName, full }: { post: ClubPostDto; clubName
         <button type="button" className="iconbtn" aria-label="Post options" onClick={() => setMenu(true)}><MoreHorizontal /></button>
       </header>
       {post.body && <p className="post-b">{post.body}</p>}
+      {post.challenge && <Link to={`/clubs/${post.clubId}/challenges/${post.challenge.id}`} className="post-ch"><Trophy />Challenge: {post.challenge.title}</Link>}
       {post.workout && (full ? <><WorkoutStats w={post.workout} /><WorkoutTable w={post.workout} /></> : <Link to={open} className="post-link"><WorkoutStats w={post.workout} /><span className="more">See the full workout</span></Link>)}
       {post.activity && <ActivityStats a={post.activity} />}
       {(post.kind === "WORKOUT" && !post.workout) && <p className="help">The workout itself was deleted.</p>}

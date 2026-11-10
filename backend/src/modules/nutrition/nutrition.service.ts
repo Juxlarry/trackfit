@@ -264,3 +264,11 @@ export async function eatenKcalByDay(userId: string, fromIso: string, toIso: str
   }
   return out;
 }
+
+// ── Read by other modules (Clubs challenges) ─────────────────────────────
+
+/** Foods the user logged on a day. */
+export const foodLogsOn = (userId: string, dateIso: string) => listFoodLogs(userId, dateIso);
+
+/** The day's total logged water, in ml. */
+export const waterOn = (userId: string, dateIso: string) => getWaterMl(userId, dateIso);

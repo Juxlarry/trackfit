@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowRight, Check, Flame, Info, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowRight, Check, Flame, Info, Plus, Sparkles, Trash2, Trophy, X } from "lucide-react";
 import { LAST_SETS, LOG_PLANNED_SESSION } from "../graphql/operations";
 import type { PlannedExerciseDto } from "../graphql/types";
 import { usePlan, useUnits } from "../hooks/usePlan";
@@ -13,6 +13,10 @@ import { localToday, mmss, noonOn } from "../lib/dates";
 import { useSheets } from "./AppSheets";
 import { REFETCH_LOGS, sessionOn } from "./planUtil";
 import { ShareCard } from "./clubs/ShareCard";
+import { ChallengeWorkoutSheet } from "./clubs/Challenges";
+import { useMyChallenges } from "./clubs/challengeHooks";
+import type { ClubChallengeDto } from "../graphql/types";
+import { challengeRule } from "../lib/clubFormat";
 
 interface Row { kg: string; reps: string; done: boolean }
 interface Hist { id: string; startedAt: string; sets: { setNumber: number; reps: number; weightKg: number; exercise: { id: string } }[] }
@@ -42,6 +46,9 @@ export function SessionPage() {
   const [leaving, setLeaving] = useState(false);
   const [summary, setSummary] = useState<{ id: string | null; dur: number; sets: number; vol: number; prs: number; partial: boolean } | null>(null);
   const [justDone, setJustDone] = useState<string | null>(null);
+  // Workout challenges you've taken on: an extra block after the planned exercises.
+  const challenges = useMyChallenges(date).filter((m) => m.challenge.kind === "WORKOUT" && !m.doneForPeriod && !m.completed);
+  const [challenge, setChallenge] = useState<ClubChallengeDto | null>(null);
 
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, []);
   useEffect(() => {
@@ -163,6 +170,16 @@ export function SessionPage() {
             </section>
           );
         })}
+        {challenges.map(({ challenge: c }) => (
+          <section className="excard ch-block" key={c.id}>
+            <div className="excard-h">
+              <span className="thumb"><Trophy /></span>
+              <div><div className="t">Club challenge: {c.title}</div><div className="d">{c.clubName} · {challengeRule(c, units.unit === "lb")}</div></div>
+              <button type="button" className="linkbtn" onClick={() => setChallenge(c)}>{c.timeLimitMinutes ? "Start the clock" : "Do it"}</button>
+            </div>
+            <div className="ch-ex">{c.exercises.map((e) => <div key={e.exerciseId}><span>{e.name}</span><span>{e.sets} × {e.reps}</span></div>)}</div>
+          </section>
+        ))}
         <div className="btnrow"><button type="button" className="ghost" onClick={() => sheets.activity("", date)}><Plus />Add activity</button></div>
       </div>
       {rest && (
@@ -176,6 +193,9 @@ export function SessionPage() {
           <button type="button" onClick={() => setRest(null)}>Skip</button>
         </div>
       )}
+      <Sheet open={!!challenge} onClose={() => setChallenge(null)} label="Club challenge">
+        {challenge && <ChallengeWorkoutSheet challenge={challenge} date={date} onDone={() => setChallenge(null)} />}
+      </Sheet>
       <Sheet open={leaving} onClose={() => setLeaving(false)} label="Leave this workout?">
         <h3>Leave this workout?</h3>
         <p>You've logged {doneN} of {all} sets.</p>
