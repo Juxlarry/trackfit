@@ -51,6 +51,15 @@ export function uploadLimits(purpose: MediaPurpose, kind: MediaKind, member: Pic
     if (kind !== "IMAGE") throw badInput("The club photo has to be a photo.");
     return { bytes: FEED_LIMITS.imageBytes, seconds: null };
   }
+  if (purpose === "CHALLENGE") {
+    if (!member.isCoach) throw forbidden("Only coaches set challenges.");
+    if (kind !== "VIDEO") throw badInput("A challenge takes a video explaining it, up to 60 seconds.");
+    return { bytes: FEED_LIMITS.coachVideoBytes, seconds: FEED_LIMITS.coachVideoSeconds };
+  }
+  if (purpose === "PROOF") {
+    // Everyone's proof has the members' limits, coaches included.
+    return kind === "IMAGE" ? { bytes: FEED_LIMITS.imageBytes, seconds: null } : { bytes: FEED_LIMITS.videoBytes, seconds: FEED_LIMITS.videoSeconds };
+  }
   if (purpose === "COMMENT") {
     if (!member.isCoach) throw forbidden("Only coaches can reply with a video.");
     if (kind !== "VIDEO") throw badInput("Replies take a video, up to 30 seconds.");
@@ -102,7 +111,7 @@ export async function requestUpload(user: UserRow, clubId: string, req: UploadRe
  * Step 2: attach an upload. Checks it's the caller's own, for this club and
  * purpose, not already used, and that the file really arrived within limits.
  */
-async function claimMedia(c: PoolClient, mediaId: string, user: UserRow, clubId: string, purpose: MediaPurpose): Promise<MediaRow> {
+export async function claimMedia(c: PoolClient, mediaId: string, user: UserRow, clubId: string, purpose: MediaPurpose): Promise<MediaRow> {
   const media = await getMedia(mediaId, c);
   if (!media || media.uploaderId !== user.id || media.clubId !== clubId || media.purpose !== purpose) throw badInput("That upload can't be used here.");
   const stored = await getMediaStore().stat(media.storagePath);
@@ -118,7 +127,7 @@ async function claimMedia(c: PoolClient, mediaId: string, user: UserRow, clubId:
 }
 
 /** Removes media rows and their files. File errors are logged, not thrown: the post is already gone. */
-async function removeMedia(c: PoolClient | typeof pool, ids: string[]) {
+export async function removeMedia(c: PoolClient | typeof pool, ids: string[]) {
   const rows = await deleteMediaRows(c, ids);
   await Promise.all(rows.map((m) => getMediaStore().remove(m.storagePath).catch((err) => console.error("Removing club media failed", m.storagePath, err))));
 }

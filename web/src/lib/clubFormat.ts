@@ -78,3 +78,42 @@ export function routineRule(r: { kind: string; activityLabel: string | null; min
   if (r.minMinutes) parts.push(`${minutesText(r.minMinutes)} or more`);
   return parts.join(", ");
 }
+
+// ── Challenges ──────────────────────────────────────────────────────────
+
+interface ChallengeLike {
+  kind: string; cadence: string; activityLabel: string | null; minDistanceKm: number | null; minMinutes: number | null;
+  timeLimitMinutes: number | null; foodName: string | null; foodGrams: number | null; foodUnit: string | null; waterMl: number | null;
+  exercises: { sets: number }[];
+}
+
+/** What it takes: "Running, 3 km", "500 ml of water", "4 exercises in 20 min". */
+export function challengeRule(c: ChallengeLike, imperial: boolean): string {
+  switch (c.kind) {
+    case "WORKOUT": {
+      const n = c.exercises.length;
+      return `${n} exercise${n === 1 ? "" : "s"}${c.timeLimitMinutes ? ` in ${minutesText(c.timeLimitMinutes)}` : ""}`;
+    }
+    case "ACTIVITY": {
+      const goal = [c.minDistanceKm ? distanceText(c.minDistanceKm, imperial) : "", c.minMinutes ? minutesText(c.minMinutes) : ""].filter(Boolean).join(" in ");
+      return `${c.activityLabel ?? "Activity"}, ${goal}`;
+    }
+    case "FOOD": return `${c.foodGrams} ${c.foodUnit ?? "g"} ${(c.foodName ?? "").toLowerCase()}`;
+    case "WATER": return `${(c.waterMl ?? 0).toLocaleString("en-GB")} ml of water`;
+    default: return "";
+  }
+}
+
+export const cadenceText = (c: { cadence: string }) => (c.cadence === "DAILY" ? "Every day" : "Once a week");
+
+/** "5 of 7 days". */
+export const challengeProgress = (c: { cadence: string }, done: number, total: number) =>
+  `${done} of ${total} ${c.cadence === "DAILY" ? "day" : "week"}${total === 1 ? "" : "s"}`;
+
+const shortDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+
+/** "Tue 10 Nov to Sun 15 Nov", or one day. */
+export const dateSpan = (from: string, to: string) => (from === to ? shortDay(from) : `${shortDay(from)} to ${shortDay(to)}`);
+
+/** "12:05" from seconds. */
+export const clockText = (secs: number) => `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, "0")}`;

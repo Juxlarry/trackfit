@@ -576,6 +576,8 @@ model ReminderPrefs {
   weighIn        Boolean  @default(true)
   progressPhotos Boolean  @default(true)
   missedSession  Boolean  @default(true)
+  /// Push when a coach sets a new club challenge.
+  clubChallenges Boolean  @default(true)
   updatedAt      DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -637,6 +639,7 @@ model Club {
   posts       ClubPost[]
   reports     ClubReport[]
   routines    ClubRoutine[]
+  challenges  ClubChallenge[]
 
   @@schema("clubs")
   @@map("clubs")
@@ -727,7 +730,7 @@ model ClubMedia {
   id              String   @id @default(uuid())
   clubId          String
   uploaderId      String
-  purpose         String   // POST | COMMENT | CLUB_PHOTO
+  purpose         String   // POST | COMMENT | CLUB_PHOTO | CHALLENGE | PROOF
   kind            String   // IMAGE | VIDEO
   contentType     String
   sizeBytes       Int
@@ -753,6 +756,8 @@ model ClubPost {
   weightChangeKg Decimal?  @db.Decimal(5, 1)
   hasPr          Boolean   @default(false)
   mediaId        String?
+  /// CHALLENGE_WIN posts: the challenge finished.
+  challengeId    String?
   createdAt      DateTime  @default(now())
   editedAt       DateTime?
   deletedAt      DateTime?
@@ -859,4 +864,95 @@ model ClubRoutineCompletion {
   @@id([routineId, userId, onDate])
   @@schema("clubs")
   @@map("routine_completions")
+}
+
+/// Set by a coach, at most 3 a week (set_week, in the club's time zone).
+model ClubChallenge {
+  id               String    @id @default(uuid())
+  clubId           String
+  coachId          String
+  title            String
+  description      String?
+  cadence          String    // DAILY | WEEKLY
+  kind             String    // WORKOUT | ACTIVITY | FOOD | WATER
+  startsOn         DateTime  @db.Date
+  endsOn           DateTime  @db.Date
+  setWeek          DateTime  @db.Date
+  videoMediaId     String?
+  /// WORKOUT: [{ exerciseId, sets, reps }].
+  exercises        Json?
+  timeLimitMinutes Int?
+  activityType     String?
+  minDistanceKm    Decimal?  @db.Decimal(5, 2)
+  minMinutes       Int?
+  foodKey          String?
+  foodName         String?
+  foodGrams        Int?
+  waterMl          Int?
+  createdAt        DateTime  @default(now())
+  endedAt          DateTime?
+
+  club         Club                       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  participants ClubChallengeParticipant[]
+  entries      ClubChallengeEntry[]
+  comments     ClubChallengeComment[]
+
+  @@index([clubId, coachId, setWeek])
+  @@schema("clubs")
+  @@map("challenges")
+}
+
+/// JOINED or DECLINED. No row: not answered, so the pop-up offers it again.
+model ClubChallengeParticipant {
+  challengeId String
+  userId      String
+  status      String    // JOINED | DECLINED
+  decidedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  challenge ClubChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@id([challengeId, userId])
+  @@schema("clubs")
+  @@map("challenge_participants")
+}
+
+/// Proof: one per day (DAILY) or per week (WEEKLY).
+model ClubChallengeEntry {
+  id            String   @id @default(uuid())
+  challengeId   String
+  userId        String
+  periodStart   DateTime @db.Date
+  onDate        DateTime @db.Date
+  resultSeconds Int?
+  resultReps    Int?
+  distanceKm    Decimal? @db.Decimal(6, 2)
+  minutes       Int?
+  waterMl       Int?
+  note          String?
+  sessionId     String?
+  activityId    String?
+  foodLogId     String?
+  mediaId       String?
+  createdAt     DateTime @default(now())
+
+  challenge ClubChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId, periodStart])
+  @@schema("clubs")
+  @@map("challenge_entries")
+}
+
+model ClubChallengeComment {
+  id          String    @id @default(uuid())
+  challengeId String
+  authorId    String
+  body        String
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  challenge ClubChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@schema("clubs")
+  @@map("challenge_comments")
 }

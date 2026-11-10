@@ -5,7 +5,8 @@ type Db = PoolClient | typeof pool;
 
 /** Feed SQL (sql/011_club_feed.sql). Access checks live in feed.service.ts. */
 
-export type MediaPurpose = "POST" | "COMMENT" | "CLUB_PHOTO";
+/** CHALLENGE: a coach's video explaining a challenge. PROOF: a challenge entry's photo or video. */
+export type MediaPurpose = "POST" | "COMMENT" | "CLUB_PHOTO" | "CHALLENGE" | "PROOF";
 export type MediaKind = "IMAGE" | "VIDEO";
 export type PostKind = "WORKOUT" | "RUN" | "CYCLE" | "ACTIVITY" | "PROGRESS" | "MEAL" | "CHALLENGE_WIN" | "COACH_VIDEO";
 export type Reaction = "FIRE" | "STRONG" | "CLAP" | "HEART";
@@ -45,6 +46,7 @@ export interface PostRow {
   weightChangeKg: number | null;
   hasPr: boolean;
   mediaId: string | null;
+  challengeId: string | null;
   createdAt: Date;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -57,7 +59,7 @@ const person = (r: any, prefix = ""): PersonRef => ({
 
 const mapPost = (r: any): PostRow => ({
   id: r.id, clubId: r.club_id, author: person(r), kind: r.kind, body: r.body, sessionId: r.session_id, activityId: r.activity_id,
-  weightChangeKg: r.weight_change_kg == null ? null : Number(r.weight_change_kg), hasPr: r.has_pr, mediaId: r.media_id,
+  weightChangeKg: r.weight_change_kg == null ? null : Number(r.weight_change_kg), hasPr: r.has_pr, mediaId: r.media_id, challengeId: r.challenge_id ?? null,
   createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
 });
 
@@ -121,12 +123,12 @@ export async function listStalePendingMedia(before: Date, limit = 100): Promise<
 
 export async function insertPost(db: Db, p: {
   clubId: string; authorId: string; kind: PostKind; body: string; sessionId: string | null; activityId: string | null;
-  weightChangeKg: number | null; hasPr: boolean; mediaId: string | null;
+  weightChangeKg: number | null; hasPr: boolean; mediaId: string | null; challengeId?: string | null;
 }): Promise<string> {
   const { rows } = await db.query(
-    `INSERT INTO clubs.posts (club_id, author_id, kind, body, session_id, activity_id, weight_change_kg, has_pr, media_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-    [p.clubId, p.authorId, p.kind, p.body, p.sessionId, p.activityId, p.weightChangeKg, p.hasPr, p.mediaId],
+    `INSERT INTO clubs.posts (club_id, author_id, kind, body, session_id, activity_id, weight_change_kg, has_pr, media_id, challenge_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    [p.clubId, p.authorId, p.kind, p.body, p.sessionId, p.activityId, p.weightChangeKg, p.hasPr, p.mediaId, p.challengeId ?? null],
   );
   return rows[0].id;
 }

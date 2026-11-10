@@ -12,6 +12,7 @@ import { timeAgo } from "../../lib/clubFormat";
 import { Composer } from "./Composer";
 import { PostCard } from "./PostBits";
 import { RoutinesTab } from "./Routines";
+import { ChallengesTab } from "./Challenges";
 import { ChipGroup, OptionList } from "../../components/ui/Options";
 import { Sheet } from "../../components/ui/Sheet";
 import { useToast } from "../../components/ui/Toast";
@@ -45,8 +46,10 @@ export function ClubPage() {
   return <ClubView club={club} />;
 }
 
-type Tab = "feed" | "routines" | "members" | "club";
-const TABS: { id: Tab; label: string }[] = [{ id: "feed", label: "Feed" }, { id: "routines", label: "Routines" }, { id: "members", label: "Members" }, { id: "club", label: "Club" }];
+type Tab = "feed" | "challenges" | "routines" | "members" | "club";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "feed", label: "Feed" }, { id: "challenges", label: "Challenges" }, { id: "routines", label: "Routines" }, { id: "members", label: "Members" }, { id: "club", label: "Club" },
+];
 
 function ClubView({ club }: { club: ClubDto }) {
   const [params, setParams] = useSearchParams();
@@ -71,6 +74,7 @@ function ClubView({ club }: { club: ClubDto }) {
       </div>
 
       {tab === "feed" && <Feed club={club} />}
+      {tab === "challenges" && <ChallengesTab club={club} />}
       {tab === "routines" && <RoutinesTab club={club} />}
       {tab === "members" && <MembersTab club={club} onManage={setManage} />}
       {tab === "club" && <ClubTab club={club} />}
@@ -153,7 +157,7 @@ function MembersTab({ club, onManage }: { club: ClubDto; onManage: (m: ClubMembe
                     <div className="t">{m.displayName}{m.isMe && <span className="tag">You</span>}</div>
                     <div className="d">
                       {roleText(m)}{m.joinedAt ? ` · joined ${onDay(m.joinedAt)}` : ""}
-                      {o && <><br />{o.sessionsPerWeek} workout{o.sessionsPerWeek === 1 ? "" : "s"} a week · {o.activities} activit{o.activities === 1 ? "y" : "ies"}{o.prs ? ` · ${o.prs} PR${o.prs === 1 ? "" : "s"}` : ""} · last workout {o.lastWorkoutAt ? timeAgo(o.lastWorkoutAt) : "none yet"}</>}
+                      {o && <><br />{o.sessionsPerWeek} workout{o.sessionsPerWeek === 1 ? "" : "s"} a week · {o.activities} activit{o.activities === 1 ? "y" : "ies"}{o.prs ? ` · ${o.prs} PR${o.prs === 1 ? "" : "s"}` : ""} · last workout {o.lastWorkoutAt ? timeAgo(o.lastWorkoutAt) : "none yet"}{o.challengesTaken ? ` · ${o.challengesTaken} challenge${o.challengesTaken === 1 ? "" : "s"} taken, ${o.challengesCompleted} finished` : ""}</>}
                     </div>
                   </div>
                 </>

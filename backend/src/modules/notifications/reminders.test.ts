@@ -107,7 +107,7 @@ test("missed session: 08:00 the morning after a planned session with nothing log
 });
 
 test("check-in: 07:30 on days 40, 41 and 42, not switchable", () => {
-  const off = { ...plan, prefs: { weighIn: false, progressPhotos: false, missedSession: false } };
+  const off = { ...plan, prefs: { weighIn: false, progressPhotos: false, missedSession: false, clubChallenges: true } };
   assert.deepEqual(kinds(off, "2026-12-11", "07:30"), [], "day 39");
   assert.deepEqual(kinds(off, "2026-12-12", "07:30"), ["CHECKIN_READY"], "day 40");
   assert.deepEqual(kinds(off, "2026-12-13", "07:30"), ["CHECKIN_READY"]);

@@ -28,7 +28,7 @@ async function withStats(posts: PostRow[], viewer: MemberRow): Promise<PostParen
   return posts.map((p) => ({ ...p, viewer, stats: stats.get(p.id)! }));
 }
 
-async function loadPost(postId: string, userId: string): Promise<PostParent> {
+export async function loadPost(postId: string, userId: string): Promise<PostParent> {
   const { post, viewer } = await requirePostAccess(postId, userId);
   return (await withStats([post], viewer))[0];
 }
@@ -36,7 +36,7 @@ async function loadPost(postId: string, userId: string): Promise<PostParent> {
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 const personOut = (p: PersonRef, viewerId: string) => ({ ...p, isMe: p.userId === viewerId });
 
-async function mediaOut(id: string | null) {
+export async function mediaOut(id: string | null) {
   if (!id) return null;
   const m = await getMedia(id);
   if (!m || m.status !== "READY") return null;

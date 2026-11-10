@@ -29,9 +29,10 @@ export const notificationsResolvers = {
       await deletePushSubscription(requireUser(ctx).id, endpoint);
       return true;
     },
-    setReminderPrefs: async (_p: unknown, { input }: { input: ReminderPrefsRow }, ctx: GraphQLContext) => {
+    setReminderPrefs: async (_p: unknown, { input }: { input: Omit<ReminderPrefsRow, "clubChallenges"> & { clubChallenges?: boolean | null } }, ctx: GraphQLContext) => {
       const userId = requireUser(ctx).id;
-      await setReminderPrefs(userId, { weighIn: input.weighIn, progressPhotos: input.progressPhotos, missedSession: input.missedSession });
+      const clubChallenges = input.clubChallenges ?? (await getReminderPrefs(userId)).clubChallenges;
+      await setReminderPrefs(userId, { weighIn: input.weighIn, progressPhotos: input.progressPhotos, missedSession: input.missedSession, clubChallenges });
       return getReminderPrefs(userId);
     },
     sendTestPush: async (_p: unknown, _a: unknown, ctx: GraphQLContext) =>

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { Check, ChefHat, Clock, Droplet, Minus, PenLine, Plus, Repeat, ShieldCheck, Utensils } from "lucide-react";
+import { Check, ChefHat, Clock, Droplet, Minus, PenLine, Plus, Repeat, ShieldCheck, Trophy, Utensils } from "lucide-react";
 import { weekdayOf, type MealSlot } from "@engine";
 import { WATER_PRESETS } from "@engine/foods";
 import { MEAL_DAY, MEAL_SWAP_OPTIONS, SET_MEAL_EATEN, SET_WATER, SWAP_MEAL } from "../graphql/operations";
-import type { FoodLogDto, MealDayDto, MealItemDto } from "../graphql/types";
+import type { ClubChallengeDto, FoodLogDto, MealDayDto, MealItemDto, MyClubChallengeDto } from "../graphql/types";
 import { usePlan } from "../hooks/usePlan";
 import { Ring } from "../components/ui/Ring";
 import { Sheet } from "../components/ui/Sheet";
@@ -13,6 +14,8 @@ import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, dayShort, localToday } from "../
 import { ViewHead } from "./AppLayout";
 import { SLOT_LABEL, weekDates } from "./planUtil";
 import { FoodSheet } from "./FoodSheet";
+import { ChallengeProof } from "./clubs/ChallengeProof";
+import { useMyChallenges } from "./clubs/challengeHooks";
 import { PulseLoader } from "../components/ui/PulseLoader";
 
 const DIET_LABEL: Record<string, string> = { OMNIVORE: "Eats everything", HALAL: "Halal", PESCATARIAN: "Pescatarian", VEGETARIAN: "Vegetarian", VEGAN: "Vegan", OTHER: "Custom" };
@@ -37,7 +40,12 @@ export function FuelPage() {
   const [setEaten] = useMutation<{ setMealEaten: MealDayDto }>(SET_MEAL_EATEN);
   const [swapFor, setSwapFor] = useState<MealItemDto | null>(null);
   // null: closed; "new": log a food; otherwise the logged food being edited.
-  const [food, setFood] = useState<FoodLogDto | "new" | null>(null);
+  // From Today's challenge card: /fuel?log=<challengeId> opens the food sheet on it.
+  const [params, setParams] = useSearchParams();
+  const [forChallenge, setForChallenge] = useState<string | null>(() => params.get("log"));
+  const [food, setFood] = useState<FoodLogDto | "new" | null>(() => (params.get("log") ? "new" : null));
+  useEffect(() => { if (params.get("log")) setParams({}, { replace: true }); }, [params, setParams]);
+  const challenges = useMyChallenges(date);
   const m = q.data?.mealDay;
   const t = plan.targets;
   const canLog = date <= today;
@@ -139,7 +147,7 @@ export function FuelPage() {
               </p>
             )}
           </section>
-          {m?.water && canLog && <WaterCard date={date} day={m} />}
+          {m?.water && canLog && <WaterCard date={date} day={m} challenges={challenges.filter((x) => x.challenge.kind === "WATER")} />}
           <section className="card fadein" style={{ "--d": ".12s" } as CSSProperties}>
             <div className="card-h"><div><h3>Your rules</h3><p>Every meal follows these</p></div></div>
             <div className="list">
@@ -151,8 +159,8 @@ export function FuelPage() {
           </section>
         </div>
       </div>
-      <Sheet open={!!food} onClose={() => setFood(null)} label={food === "new" ? "Log food" : "Edit food"}>
-        {food && m && <FoodSheet date={date} day={m} editing={food === "new" ? null : food} onDone={() => setFood(null)} />}
+      <Sheet open={!!food} onClose={() => { setFood(null); setForChallenge(null); }} label={food === "new" ? "Log food" : "Edit food"}>
+        {food && m && <FoodSheet date={date} day={m} editing={food === "new" ? null : food} challengeId={forChallenge} onDone={() => { setFood(null); setForChallenge(null); }} />}
       </Sheet>
       <Sheet open={!!swapFor} onClose={() => setSwapFor(null)} label="Swap a meal">
         {swapFor && <SwapSheet date={date} item={swapFor} kcal={t.kcal} onDone={() => setSwapFor(null)} />}
@@ -162,8 +170,9 @@ export function FuelPage() {
 }
 
 /** Optional: tap what you drank. The target is in bottles and sachets, not just ml. */
-function WaterCard({ date, day }: { date: string; day: MealDayDto }) {
+function WaterCard({ date, day, challenges }: { date: string; day: MealDayDto; challenges: MyClubChallengeDto[] }) {
   const toast = useToast();
+  const [proof, setProof] = useState<ClubChallengeDto | null>(null);
   const w = day.water!;
   const [last, setLast] = useState<number[]>([]);
   const [editing, setEditing] = useState(false);
@@ -189,6 +198,18 @@ function WaterCard({ date, day }: { date: string; day: MealDayDto }) {
         <div className="l"><span>{w.ml >= w.targetMl ? "Target reached" : `${fmt(w.targetMl - w.ml)} ml to go`}</span><b>{fmt(w.ml)} / {fmt(w.targetMl)} ml</b></div>
         <div className="bar"><i style={{ width: `${pct}%`, background: "var(--water)" }} /></div>
       </div>
+      {challenges.map(({ challenge: c, doneForPeriod }) => (
+        <div key={c.id} className="ch-water">
+          <Trophy />
+          <span><b>Challenge: {fmt(c.waterMl ?? 0)} ml</b><i>{c.title} · {c.clubName}</i></span>
+          {doneForPeriod ? <span className="tag">Proof sent</span>
+            : w.ml >= (c.waterMl ?? 0) ? <button type="button" className="linkbtn" onClick={() => setProof(c)}>Send proof</button>
+            : <span className="d">{fmt((c.waterMl ?? 0) - w.ml)} ml to go</span>}
+        </div>
+      ))}
+      <Sheet open={!!proof} onClose={() => setProof(null)} label="Send proof">
+        {proof && <ChallengeProof challenge={proof} date={date} onDone={() => setProof(null)} />}
+      </Sheet>
       <div className="water-presets">
         {WATER_PRESETS.map((p) => (
           <button key={p.label} type="button" className="wp" onClick={() => add(p.ml)} aria-label={`Add ${p.label.toLowerCase()}, ${p.ml} ml`}>

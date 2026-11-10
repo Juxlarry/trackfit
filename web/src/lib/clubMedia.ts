@@ -9,7 +9,8 @@ import type { ClubFeedLimitsDto } from "../graphql/types";
  * checks the same limits again, so these checks are only for quick, clear
  * messages.
  */
-export type ClubUploadPurpose = "POST" | "COMMENT" | "CLUB_PHOTO";
+/** CHALLENGE: a coach's video explaining a challenge. PROOF: a challenge entry's photo or video. */
+export type ClubUploadPurpose = "POST" | "COMMENT" | "CLUB_PHOTO" | "CHALLENGE" | "PROOF";
 
 /** Matches the API (feed.service.ts FEED_LIMITS); a club page passes its own copy from the server. */
 export const DEFAULT_FEED_LIMITS: ClubFeedLimitsDto = { imageMb: 10, videoMb: 50, videoSeconds: 30, coachVideoMb: 100, coachVideoSeconds: 60, postChars: 1000, commentChars: 500 };
@@ -45,12 +46,14 @@ export async function checkClubFile(file: File, purpose: ClubUploadPurpose, limi
   if (!kind) return { error: "That file type isn't supported. Use a photo or a video." };
   if (purpose === "CLUB_PHOTO" && kind !== "IMAGE") return { error: "The club photo has to be a photo." };
   if (purpose === "COMMENT" && kind !== "VIDEO") return { error: "Replies take a video, up to 30 seconds." };
+  if (purpose === "CHALLENGE" && kind !== "VIDEO") return { error: "A challenge takes a video explaining it, up to 60 seconds." };
   const mb = file.size / 1048576;
   if (kind === "IMAGE") {
     if (mb > limits.imageMb) return { error: `That photo is ${mb.toFixed(1)} MB. The limit is ${limits.imageMb} MB, so try a lower camera quality.` };
     return { file, contentType, kind, seconds: null };
   }
-  const coachPost = isCoach && purpose === "POST";
+  // Coaches' video posts and challenge videos get the longer limit; proof is the same for everyone.
+  const coachPost = (isCoach && purpose === "POST") || purpose === "CHALLENGE";
   const maxMb = coachPost ? limits.coachVideoMb : limits.videoMb;
   const maxSeconds = coachPost ? limits.coachVideoSeconds : limits.videoSeconds;
   if (mb > maxMb) return { error: `That video is ${Math.round(mb)} MB. The limit is ${maxMb} MB.` };

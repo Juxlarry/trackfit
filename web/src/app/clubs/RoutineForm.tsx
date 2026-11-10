@@ -105,7 +105,7 @@ export function RoutineForm({ clubId, clubName, routine, onDone }: { clubId: str
   );
 }
 
-function ExercisePicker({ exercises, onChange }: { exercises: Ex[]; onChange: (e: Ex[]) => void }) {
+export function ExercisePicker({ exercises, onChange }: { exercises: Ex[]; onChange: (e: Ex[]) => void }) {
   const [search, setSearch] = useState("");
   const q = useQuery<{ exercises: { id: string; name: string }[] }>(EXERCISES, { variables: { search: search.trim() || null }, skip: search.trim().length < 2 });
   const set = (i: number, patch: Partial<Ex>) => onChange(exercises.map((e, k) => (k === i ? { ...e, ...patch } : e)));

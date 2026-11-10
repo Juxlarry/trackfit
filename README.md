@@ -217,7 +217,7 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 
 ## Clubs v1 (first release)
 
-**Status: approved November 2026. Steps 1 to 3 of the [build order](#build-order-within-v1) are built; step 4 (challenges) is not built yet.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
+**Status: approved November 2026. All four steps of the [build order](#build-order-within-v1) are built.** This is the first, smaller release of Clubs. Where it differs from the [longer-term Clubs spec](#clubs-spec-planned), this section wins. The defaults that were signed off are listed under [Approved defaults](#approved-defaults).
 
 ### In and out
 
@@ -450,7 +450,7 @@ Each step can go to testers on its own:
 1. **Console and clubs (built):** app roles, creating clubs, invites, join links and approval, club roles.
 2. **Feed (built):** posts, sharing after workouts and activities, media, comments and reactions, the coaches' Members page.
 3. **Club routines (built).**
-4. **Challenges:** creating them, the pop-up, showing them in sessions, Fuel, water and the activity logger, proof, wins.
+4. **Challenges (built):** creating them, the pop-up, showing them in sessions, Fuel, water and the activity logger, proof, wins.
 
 **Step 1 as built**
 
@@ -492,6 +492,33 @@ Each step can go to testers on its own:
   - **Routines tab** on the club page, and the routine page at `/clubs/:id/routines/:routineId`. The page shows who did it: this week first, then the five before, with each person's streak.
   - **Today** shows "Club routines today" for club members. "Log activity" opens the activity sheet already set to the routine's activity type; "Log it" opens the workout routine's exercises with optional weights and time.
 - **Not in this step:** reminders for routine days, and routines on the coaches' Members page.
+
+**Step 4 as built**
+
+- **API:** `challenges.*` and `challenge-schedule.ts` in `backend/src/modules/clubs/`, and `sql/013_club_challenges.sql`.
+  - **The cap:** 3 per coach per week, counted by the week the challenge is set (Monday to Sunday in the club's time zone) and checked under the club row lock. Ended challenges still count, so ending one doesn't free a slot. Each coach has their own 3.
+  - **Dates:** a challenge starts today or within 28 days, and runs for up to 4 weeks. By default it runs from today to Sunday.
+  - **Proof:** one photo or video for each day (daily) or each Monday-to-Sunday week (weekly), uploaded with the new `PROOF` purpose. A weekly challenge's first and last weeks are cut to its own dates. Proof can go in for today or the two days before.
+  - **Checks against the log:**
+    - **Activity:** the logged activity must be that day's, of the right type, and meet the distance or time.
+    - **Water:** the day's logged total must reach the amount.
+    - **Food from the list:** a matching food must be logged that day.
+    - **Typed-in food:** rests on the photo, since it isn't in the food list.
+    - **Workout:** a time over the limit is turned away. Each entry also logs a normal workout session ("Club challenge: <name>").
+  - **Finishing:** when the last day (or week) has proof, the member is offered a win post. It goes to the feed with a copy of their latest proof, so deleting the post leaves the proof on the challenge's page. One win per person per challenge.
+  - **Taking part:** "Not for me" stops the pop-up offering it. A member can still take it on from its page later, but can't drop out once they've sent proof.
+  - **Ending:** the coach who set it, or an Admin, can end it. It leaves Today and the pop-up, and its page stays.
+  - **Push:** goes to the club's other members when a coach sets a challenge. It's on by default and switched off under Reminders ("New club challenges", `clubChallenges` in `reminder_prefs`).
+- **Web:**
+  - **Club page:** a **Challenges** tab, with the coach's form (kind, dates, rules and an optional video of up to 60 seconds). Each challenge has a page at `/clubs/:id/challenges/:challengeId` with details, everyone's progress and proof, and comments.
+  - **Today:** the pop-up on the first visit each day (remembered on the device) and a **Your challenges** card.
+  - **Where joined challenges show up:**
+    - **Workout:** a block after the planned exercises in the session, with a countdown when there's a time limit.
+    - **Activity:** "Log for this challenge?" in the activity sheet.
+    - **Food:** "Challenge: …" options in the food sheet.
+    - **Water:** the target and "Send proof" on the water card.
+  - **Coaches' Members page:** shows challenges taken and finished.
+- **Not in this step:** reminders to send proof, and editing a challenge once it's set (end it and set another).
 
 ### Approved defaults
 

@@ -1,23 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ApolloCache } from "@apollo/client";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, Check, Clock, PenLine, Plus, Search, Star, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Clock, PenLine, Plus, Search, Star, Trash2, Trophy } from "lucide-react";
 import type { MealSlot } from "@engine";
 import { FOODS, foodByKey, foodNumbers, searchFoods, type Food } from "@engine/foods";
 import { CHANGE_FOOD_LOG, LOG_FOOD, MEAL_DAY, MY_FOODS, REMOVE_FOOD_LOG } from "../graphql/operations";
-import type { CustomFoodDto, FoodLogDto, MealDayDto } from "../graphql/types";
+import type { ClubChallengeDto, CustomFoodDto, FoodLogDto, MealDayDto } from "../graphql/types";
 import { useUnits } from "../hooks/usePlan";
 import { ChipGroup } from "../components/ui/Options";
 import { useToast } from "../components/ui/Toast";
 import { dayLabel } from "../lib/dates";
 import { SLOT_LABEL } from "./planUtil";
+import { ChallengeProof } from "./clubs/ChallengeProof";
+import { useMyChallenges } from "./clubs/challengeHooks";
 
 /**
  * Log any food: search the food list (or your own foods), pick a portion and
  * amount, and which meal it was. Also edits or removes a logged food.
  */
 type Choice = { kind: "food"; food: Food } | { kind: "custom"; custom: CustomFoodDto };
-type Step = "pick" | "amount" | "quick";
+type Step = "pick" | "amount" | "quick" | "proof";
 
 const SLOTS: MealSlot[] = ["BREAKFAST", "LUNCH", "SNACK", "DINNER"];
 const QTYS = [0.5, 1, 1.5, 2, 3];
@@ -32,7 +34,8 @@ function slotByClock(): MealSlot {
 
 type Mutated = { logFood?: MealDayDto; changeFoodLog?: MealDayDto; removeFoodLog?: MealDayDto };
 
-export function FoodSheet({ date, day, editing, onDone }: { date: string; day: MealDayDto; editing: FoodLogDto | null; onDone: () => void }) {
+/** challengeId: start on that club food challenge (from Today's challenge card). */
+export function FoodSheet({ date, day, editing, challengeId, onDone }: { date: string; day: MealDayDto; editing: FoodLogDto | null; challengeId?: string | null; onDone: () => void }) {
   const toast = useToast();
   const imperial = useUnits().unit === "lb";
   const mine = useQuery<{ myFoods: { custom: CustomFoodDto[]; recent: FoodLogDto[] } }>(MY_FOODS, { fetchPolicy: "cache-and-network" });
@@ -55,6 +58,26 @@ export function FoodSheet({ date, day, editing, onDone }: { date: string; day: M
   const [slot, setSlot] = useState<MealSlot>(editing?.slot ?? slotByClock());
   const [instead, setInstead] = useState(true);
   const [quick, setQuick] = useState({ name: "", kcal: "", p: "", c: "", f: "" });
+  // Food challenges you've taken on: a quick option, then proof once it's logged.
+  const challenges = useMyChallenges(date).filter((m) => m.challenge.kind === "FOOD" && !m.doneForPeriod && !m.completed).map((m) => m.challenge);
+  const [forCh, setForCh] = useState<ClubChallengeDto | null>(null);
+  const startChallenge = (c: ClubChallengeDto) => {
+    setForCh(c);
+    const food = c.foodKey ? foodByKey(c.foodKey) : undefined;
+    if (!food) { setStep("proof"); return; }
+    setPick({ kind: "food", food });
+    setPortion("g");
+    setGrams(String(c.foodGrams ?? ""));
+    setQty(1);
+    setStep("amount");
+  };
+  const [autoStarted, setAutoStarted] = useState(false);
+  useEffect(() => {
+    if (autoStarted || !challengeId || editing) return;
+    const c = challenges.find((x) => x.id === challengeId);
+    if (c) { setAutoStarted(true); startChallenge(c); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [challengeId, challenges.length]);
 
   const update = { update: (cache: ApolloCache, { data }: { data?: Mutated | null }) => {
     const d = data?.logFood ?? data?.changeFoodLog ?? data?.removeFoodLog;
@@ -121,6 +144,8 @@ export function FoodSheet({ date, day, editing, onDone }: { date: string; day: M
         date, slot, ...amount, insteadOfSlotIndex: insteadOf,
         ...(pick.kind === "food" ? { foodKey: pick.food.key } : { customFoodId: pick.custom.id }),
       } } });
+      // Logged for a challenge: proof next, in the same sheet.
+      if (forCh && pick.kind === "food" && pick.food.key === forCh.foodKey) { setStep("proof"); return; }
       done(pick.kind === "food" ? pick.food.name : pick.custom.name);
     } catch (e) { fail(e); }
   };
@@ -159,6 +184,8 @@ export function FoodSheet({ date, day, editing, onDone }: { date: string; day: M
       )}
     </>
   );
+
+  if (step === "proof" && forCh) return <ChallengeProof challenge={forCh} date={date} onDone={onDone} />;
 
   if (step === "quick") {
     const ok = quick.name.trim().length >= 2 && Number(quick.kcal) > 0;
@@ -237,6 +264,14 @@ export function FoodSheet({ date, day, editing, onDone }: { date: string; day: M
         <Search aria-hidden="true" />
         <input className="txt" type="search" aria-label="Search foods" placeholder="Search: waakye, kenkey, Malta, pizza…" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
       </div>
+      {!query.trim() && challenges.length > 0 && (
+        <>
+          <h4 className="food-h"><Trophy />Club challenges</h4>
+          <div className="opts food-list">
+            {challenges.map((c) => row(`ch-${c.id}`, `Challenge: ${c.foodGrams} ${c.foodUnit ?? "g"} ${(c.foodName ?? "").toLowerCase()}`, `${c.title} · ${c.clubName}`, () => startChallenge(c)))}
+          </div>
+        </>
+      )}
       {query.trim() ? (
         <div className="opts food-list">
           {results.map((r) => ("food" in r ? foodRow(r.food) : customRow(r.custom)))}

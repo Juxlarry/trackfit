@@ -23,6 +23,9 @@ import { DAYS_LONG, dayLabel, dayShort, localToday } from "../lib/dates";
 import { useInstall } from "../lib/pwa";
 import { disablePushHere, enablePush, pushStatus, type PushStatus } from "../lib/push";
 import { ShareCard } from "./clubs/ShareCard";
+import { ChallengeProof } from "./clubs/ChallengeProof";
+import { useMyChallenges } from "./clubs/challengeHooks";
+import { challengeRule } from "../lib/clubFormat";
 import { REFETCH_LOGS, readFlags, sessionOn, sessionsByDate, swapsFor, weekDates, writeFlags } from "./planUtil";
 
 export const ACT_ICON: Record<string, LucideIcon> = {
@@ -35,13 +38,13 @@ export const ACT_TILES: [string, LucideIcon, string, string][] = [
 ];
 
 type Open =
-  | { t: "activity"; kind: string; date: string; preset?: string }
+  | { t: "activity"; kind: string; date: string; preset?: string; challengeId?: string }
   | { t: "weigh" } | { t: "reminder" } | { t: "audit" } | { t: "profile" } | { t: "swap" }
   | { t: "preview"; session: PlannedSessionDto; date: string };
 
 interface SheetsApi {
-  /** preset: an activity type to start on, e.g. "RUN" from a club routine. */
-  activity: (kind?: string, date?: string, preset?: string) => void;
+  /** preset: an activity type to start on, e.g. "RUN" from a club routine. challengeId: log it for this club challenge. */
+  activity: (kind?: string, date?: string, preset?: string, challengeId?: string) => void;
   weighIn: () => void;
   reminder: () => void;
   audit: () => void;
@@ -61,7 +64,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
   const guide = useGuide();
   const swapTo = (o: Open) => { if (open) { setOpen(null); window.setTimeout(() => setOpen(o), 220); } else setOpen(o); };
   const api = useMemo<SheetsApi>(() => ({
-    activity: (kind = "", date = localToday(), preset) => swapTo({ t: "activity", kind, date, preset }),
+    activity: (kind = "", date = localToday(), preset, challengeId) => swapTo({ t: "activity", kind, date, preset, challengeId }),
     weighIn: () => swapTo({ t: "weigh" }),
     reminder: () => swapTo({ t: "reminder" }),
     audit: () => swapTo({ t: "audit" }),
@@ -78,7 +81,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
     <Ctx.Provider value={api}>
       {children}
       <Sheet open={open?.t === "activity"} onClose={close} label="Add an activity">
-        {open?.t === "activity" && <ActivitySheet kind={open.kind} date={open.date} preset={open.preset} onPick={(k) => swapTo({ t: "activity", kind: k, date: open.date })} onDone={close} />}
+        {open?.t === "activity" && <ActivitySheet kind={open.kind} date={open.date} preset={open.preset} challengeId={open.challengeId} onPick={(k) => swapTo({ t: "activity", kind: k, date: open.date })} onDone={close} />}
       </Sheet>
       <Sheet open={open?.t === "weigh"} onClose={close} label="Log your weigh-in">{open?.t === "weigh" && <WeighInSheet onDone={close} />}</Sheet>
       <Sheet open={open?.t === "reminder"} onClose={close} label="Reminders">{open?.t === "reminder" && <ReminderSheet onDone={close} />}</Sheet>
@@ -97,7 +100,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
 
 // ── Activity ──────────────────────────────────────────────────────────────
 
-function ActivitySheet({ kind, date, preset, onPick, onDone }: { kind: string; date: string; preset?: string; onPick: (k: string) => void; onDone: () => void }) {
+function ActivitySheet({ kind, date, preset, challengeId, onPick, onDone }: { kind: string; date: string; preset?: string; challengeId?: string; onPick: (k: string) => void; onDone: () => void }) {
   if (!kind) {
     return (
       <>
@@ -113,7 +116,7 @@ function ActivitySheet({ kind, date, preset, onPick, onDone }: { kind: string; d
     );
   }
   if (kind === "WARMUP" || kind === "MOBILITY" || kind === "ABS") return <RoutineSheet kind={kind} date={date} onDone={onDone} />;
-  return <CardioSheet kind={kind as "CARDIO" | "SPORT"} date={date} preset={preset} onDone={onDone} />;
+  return <CardioSheet kind={kind as "CARDIO" | "SPORT"} date={date} preset={preset} challengeId={challengeId} onDone={onDone} />;
 }
 
 function RoutineSheet({ kind, date, onDone }: { kind: "WARMUP" | "MOBILITY" | "ABS"; date: string; onDone: () => void }) {
@@ -137,9 +140,10 @@ function RoutineSheet({ kind, date, onDone }: { kind: "WARMUP" | "MOBILITY" | "A
   );
 }
 
-function CardioSheet({ kind, date, preset, onDone }: { kind: "CARDIO" | "SPORT"; date: string; preset?: string; onDone: () => void }) {
+function CardioSheet({ kind, date, preset, challengeId, onDone }: { kind: "CARDIO" | "SPORT"; date: string; preset?: string; challengeId?: string; onDone: () => void }) {
   const toast = useToast();
   const { plan } = usePlan();
+  const units = useUnits();
   const weightKg = plan?.profile.startWeightKg ?? 75;
   const keys = Object.keys(ACTIVITY_TYPES).filter((k) => ACTIVITY_TYPES[k].kind === kind);
   const liked = (plan?.profile.cardioLikes ?? []).map((c) => CARDIO_LIKE_TO_TYPE[c]).filter((k) => k && keys.includes(k));
@@ -152,6 +156,12 @@ function CardioSheet({ kind, date, preset, onDone }: { kind: "CARDIO" | "SPORT";
   const [log, { loading }] = useMutation<{ logActivity: { id: string } }>(LOG_ACTIVITY, { refetchQueries: REFETCH_LOGS });
   const { me } = usePlan();
   const [saved, setSaved] = useState<{ id: string; text: string } | null>(null);
+  // Activity challenges you've taken on that this log could count for.
+  const challenges = useMyChallenges(date).filter((m) => m.challenge.kind === "ACTIVITY" && !m.doneForPeriod && !m.completed && keys.includes(m.challenge.activityType ?? ""));
+  const [forId, setForId] = useState<string | null>(challengeId ?? null);
+  const forChallenge = challenges.find((m) => m.challenge.id === forId)?.challenge ?? null;
+  // Kept once saved: sending proof refetches the list, which then leaves this challenge out.
+  const [savedFor, setSavedFor] = useState<typeof forChallenge>(null);
   const meta = ACTIVITY_TYPES[type];
   const est = estimateActivityKcal(type, Number(minutes) || 0, weightKg, effort);
   const save = async () => {
@@ -166,11 +176,14 @@ function CardioSheet({ kind, date, preset, onDone }: { kind: "CARDIO" | "SPORT";
       } } });
       const text = `${meta.label} logged: ${m} min, ${(Number(kcal) || est).toLocaleString("en-GB")} kcal.`;
       const id = res.data?.logActivity.id;
-      // Club members get the share prompt here; everyone else is done.
-      if (id && me?.showClubs) setSaved({ id, text });
+      // Club members get the challenge proof or share prompt here; everyone else is done.
+      if (id && me?.showClubs) { setSavedFor(forChallenge); setSaved({ id, text }); }
       else { toast(text); onDone(); }
     } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that. Try again."); }
   };
+  if (saved && savedFor) {
+    return <ChallengeProof challenge={savedFor} date={date} activityId={saved.id} onDone={onDone} />;
+  }
   if (saved) {
     return (
       <>
@@ -185,8 +198,17 @@ function CardioSheet({ kind, date, preset, onDone }: { kind: "CARDIO" | "SPORT";
     <>
       <p className="sh-k">{dayLabel(date)}</p>
       <h3>Log {kind === "SPORT" ? "a sport" : "cardio"}</h3>
+      {challenges.length > 0 && (
+        <div className="ch-for">
+          <p className="rt-label" style={{ marginTop: 6 }}><Trophy />Log for this challenge?</p>
+          <ChipGroup label="Club challenge" selected={[forId ?? ""]}
+            onPick={(v) => { setForId(v || null); const c = challenges.find((m) => m.challenge.id === v)?.challenge; if (c?.activityType) setType(c.activityType); }}
+            options={[...challenges.map((m) => ({ value: m.challenge.id, label: `${m.challenge.title}` })), { value: "", label: "No" }]} />
+          {forChallenge && <p className="help">{challengeRule(forChallenge, units.unit === "lb")}. You'll add a photo or video as proof next.</p>}
+        </div>
+      )}
       <div style={{ margin: "12px 0 18px" }}>
-        <ChipGroup options={keys.map((k) => ({ value: k, label: ACTIVITY_TYPES[k].label, icon: ACT_ICON[k] }))} selected={[type]} onPick={setType} label="Activity" />
+        <ChipGroup options={keys.map((k) => ({ value: k, label: ACTIVITY_TYPES[k].label, icon: ACT_ICON[k] }))} selected={[type]} onPick={(k) => { setType(k); if (forChallenge && forChallenge.activityType !== k) setForId(null); }} label="Activity" />
       </div>
       <div className="row2">
         <div className="field"><label htmlFor="c-min">Duration (minutes)</label><input className="txt" id="c-min" type="number" inputMode="numeric" min={1} max={600} value={minutes} onChange={(e) => setMinutes(e.target.value)} /></div>
@@ -242,12 +264,13 @@ const PUSH_NOTE: Partial<Record<PushStatus, string>> = {
   "server-off": "Notifications aren't switched on for TrackFit yet. Your time is saved and reminders will start once they are.",
 };
 
-type PrefKey = "weighIn" | "progressPhotos" | "missedSession";
+type PrefKey = "weighIn" | "progressPhotos" | "missedSession" | "clubChallenges";
 type Prefs = Record<PrefKey, boolean>;
 const PREF_OPTIONS: { value: PrefKey; label: string; desc: string; icon: LucideIcon }[] = [
   { value: "weighIn", label: "Weekly weigh-in", desc: "7:30 am, once a week", icon: Scale },
   { value: "progressPhotos", label: "Progress photos", desc: "7:30 am when your Week 3 and Week 6 slots open", icon: Camera },
   { value: "missedSession", label: "Missed sessions", desc: "8 am the day after, a gentle nudge", icon: CalendarX },
+  { value: "clubChallenges", label: "New club challenges", desc: "When a coach in your club sets one", icon: Trophy },
 ];
 
 function ReminderSheet({ onDone }: { onDone: () => void }) {
@@ -263,7 +286,9 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
   const [savePrefs] = useMutation(SET_REMINDER_PREFS, { refetchQueries: [{ query: REMINDER_PREFS }] });
   const [picked, setPicked] = useState<PrefKey[] | null>(null);
   const saved = prefsQ.data?.reminderPrefs;
-  const extras = picked ?? (saved ? PREF_OPTIONS.map((o) => o.value).filter((k) => saved[k]) : []);
+  const { me } = usePlan();
+  const options = PREF_OPTIONS.filter((o) => o.value !== "clubChallenges" || me?.showClubs);
+  const extras = picked ?? (saved ? options.map((o) => o.value).filter((k) => saved[k]) : []);
   useEffect(() => { pushStatus(client).then(setPush, () => setPush("unsupported")); }, [client]);
   const before = plan ? localToday() < plan.startDate : false;
   const turnOn = (!!time || extras.length > 0) && push === "off";
@@ -279,7 +304,7 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
       </div>
       {before && <p className="help" style={{ marginTop: 14 }}>We'll also remind you at 7 pm the evening before your first session.</p>}
       <p className="sh-k" style={{ marginTop: 22 }}>Also remind me about</p>
-      <OptionList multi label="Other reminders" options={PREF_OPTIONS} selected={extras} onPick={(v) => setPicked(toggleIn(extras, v))} />
+      <OptionList multi label="Other reminders" options={options} selected={extras} onPick={(v) => setPicked(toggleIn(extras, v))} />
       {push && PUSH_NOTE[push] && <div className="note" role="note"><BellOff /><span>{PUSH_NOTE[push]}</span></div>}
       {push === "on" && (
         <div className="note" role="note">
@@ -298,7 +323,7 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
           const status = turnOn ? await enablePush(client) : push;
           if (status) setPush(status);
           await save({ variables: { time: time || null } });
-          if (picked) await savePrefs({ variables: { input: Object.fromEntries(PREF_OPTIONS.map((o) => [o.value, picked.includes(o.value)])) } });
+          if (picked) await savePrefs({ variables: { input: Object.fromEntries(options.map((o) => [o.value, picked.includes(o.value)])) } });
           if (!time && !extras.length) toast("Reminders are off.");
           else if (!time && status === "on") toast("Workout reminder is off. Your other reminders are on.");
           else if (status === "on") toast(`Reminders saved. Workouts at ${time} on training days.`);
