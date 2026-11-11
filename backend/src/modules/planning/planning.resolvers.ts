@@ -2,7 +2,8 @@ import type { GraphQLContext } from "../../shared/auth/context.js";
 import { requireUser } from "../../shared/auth/context.js";
 import type { DietInput, TrainingBasics, TrainingDetails, TrainingInput } from "./engine/index.js";
 import {
-  completeFuelSetup, completeOnboarding, completeQuickOnboarding, fineTuneTraining, getActivePlan, previewPlan, resetWeekSchedule, setStartDate, setTrainingDays, setWorkoutReminder, swapSessionDays,
+  completeFuelSetup, completeOnboarding, completeQuickOnboarding, exerciseSwapChoices, fineTuneTraining, getActivePlan, previewPlan,
+  resetPlanExercise, swapPlanExercise, resetWeekSchedule, setStartDate, setTrainingDays, setWorkoutReminder, swapSessionDays,
   type ActivePlan, type OnboardingSubmission,
 } from "./planning.service.js";
 import { completeCheckin, getCheckin, previewNextCycle } from "./checkin.service.js";
@@ -78,6 +79,8 @@ const toFuel = (f: FuelArg) => ({
 export const planningResolvers = {
   Query: {
     myCycles: (_p: unknown, _a: unknown, ctx: GraphQLContext) => listCycles(requireUser(ctx).id),
+    exerciseSwapOptions: (_p: unknown, a: { templateId: string; exerciseId: string; only?: "ANY" | "DUMBBELLS" | "BODYWEIGHT" }, ctx: GraphQLContext) =>
+      exerciseSwapChoices(requireUser(ctx).id, a.templateId, a.exerciseId, a.only ?? "ANY"),
     previewPlan: (_p: unknown, args: { training: TrainingArg; diet: DietArg; startDate: string }) => {
       const plan = previewPlan(toTraining(args.training), toDiet(args.diet), args.startDate);
       return {
@@ -151,6 +154,10 @@ export const planningResolvers = {
       }, ctx.auth ?? null);
       return { ...result, plan: result.plan ? presentPlan(result.plan) : null };
     },
+    swapPlanExercise: async (_p: unknown, a: { templateId: string; exerciseId: string; toExerciseId: string }, ctx: GraphQLContext) =>
+      presentPlan(await swapPlanExercise(requireUser(ctx).id, a.templateId, a.exerciseId, a.toExerciseId)),
+    resetPlanExercise: async (_p: unknown, a: { templateId: string; exerciseId: string }, ctx: GraphQLContext) =>
+      presentPlan(await resetPlanExercise(requireUser(ctx).id, a.templateId, a.exerciseId)),
     completeFuelSetup: async (_p: unknown, args: { input: FuelArg }, ctx: GraphQLContext) =>
       presentPlan(await completeFuelSetup(requireUser(ctx).id, toFuel(args.input))),
     fineTuneTraining: async (_p: unknown, args: { input: DetailsArg }, ctx: GraphQLContext) =>

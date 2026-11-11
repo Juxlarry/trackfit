@@ -106,6 +106,8 @@ export const planningTypeDefs = /* GraphQL */ `
   type PlanProjection { weeks: Int! weeklyRateKg: Float! endDate: String! }
   type WarmupItem { name: String! dose: String! }
   type PlannedExercise {
+    "Swapped for the rest of the cycle: the planned exercise, for Back to …. Null otherwise."
+    swappedFrom: ExerciseRef
     "Library exercise id (present on saved plans, null in previews)."
     exerciseId: ID
     name: String!
@@ -223,6 +225,27 @@ export const planningTypeDefs = /* GraphQL */ `
   }
 
   enum OnboardingPath { FULL QUICK }
+
+  type ExerciseRef { exerciseId: ID! name: String! }
+  "Narrowing swap options for the day."
+  enum SwapFilter { ANY DUMBBELLS BODYWEIGHT }
+  type ExerciseSwapOption {
+    exerciseId: ID!
+    name: String!
+    "Barbell, Machine, Cable, Dumbbell, Band or Bodyweight."
+    equipment: String!
+    "Same movement as the planned exercise (listed first)."
+    sameMovement: Boolean!
+    "One line, e.g. Same movement, dumbbells instead of a barbell."
+    reason: String!
+    suggestedLoadKg: Float
+  }
+  type ExerciseSwapChoices {
+    "The filter chips worth showing for this member's equipment."
+    filters: [SwapFilter!]!
+    "Best first, at most 6. Empty when nothing fits."
+    options: [ExerciseSwapOption!]!
+  }
   enum IntakeSection {
     "Set up Fuel: diet, allergies, favourite meals, meals a day, prep, struggles, fasting, daily activity, training time."
     FUEL
@@ -360,6 +383,8 @@ export const planningTypeDefs = /* GraphQL */ `
   extend type Query {
     "Every cycle so far, oldest first (photo history on Progress)."
     myCycles: [CycleSpan!]!
+    "What a planned exercise can be swapped for (README Exercise swaps)."
+    exerciseSwapOptions(templateId: ID!, exerciseId: ID!, only: SwapFilter = ANY): ExerciseSwapChoices!
     "The week-6 check-in for the active cycle. today is the caller's local date (YYYY-MM-DD)."
     cycleCheckin(today: String!): CycleCheckin
     "What the next cycle would look like with these answers. Nothing is saved. details: the fine-tune answers, for a quick start user who never gave them."
@@ -373,6 +398,10 @@ export const planningTypeDefs = /* GraphQL */ `
   extend type Mutation {
     "Health gate, save answers, generate program + nutrition plan in one step, send the welcome email."
     completeOnboarding(input: OnboardingInput!): OnboardingResult!
+    "Swap a planned exercise for the rest of this cycle. Only an option from exerciseSwapOptions is accepted."
+    swapPlanExercise(templateId: ID!, exerciseId: ID!, toExerciseId: ID!): ActivePlan!
+    "Back to the planned exercise."
+    resetPlanExercise(templateId: ID!, exerciseId: ID!): ActivePlan!
     "Quick start: only the basics are required; the rest is asked later (pendingSections)."
     completeQuickOnboarding(input: QuickOnboardingInput!): OnboardingResult!
     "Set up Fuel: saves the diet and recalculates calorie targets."

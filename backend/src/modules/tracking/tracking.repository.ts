@@ -276,6 +276,15 @@ export async function findTemplateName(templateId: string): Promise<string | nul
   return rows[0]?.name ?? null;
 }
 
+/** Exercises in a template now, plus any it was swapped from (a one-off swap may name either). */
+export async function templateExerciseIds(templateId: string): Promise<Set<string>> {
+  const { rows } = await pool.query(
+    `SELECT exercise_id, swapped_from_exercise_id FROM tracking.workout_template_exercises WHERE template_id = $1`,
+    [templateId],
+  );
+  return new Set(rows.flatMap((r) => [r.exercise_id, r.swapped_from_exercise_id].filter(Boolean)));
+}
+
 export async function templateBelongsToUser(templateId: string, userId: string): Promise<boolean> {
   const { rows } = await pool.query(`SELECT 1 FROM tracking.workout_templates WHERE id = $1 AND user_id = $2`, [templateId, userId]);
   return rows.length > 0;
@@ -409,7 +418,8 @@ export interface LogWorkoutSessionInput {
   shareToClubs?: boolean;
   /** MVP 2: lets "Log it" record a missed planned session on its own day. Defaults to now. */
   startedAt?: Date | null;
-  sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number | null }[];
+  /** replacesExerciseId: a one-off exercise swap, checked by the service. */
+  sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number | null; replacesExerciseId?: string | null }[];
 }
 
 export interface LogWorkoutSessionResult {
@@ -463,10 +473,10 @@ export async function logWorkoutSessionWithMilestones(
       }
 
       const { rows: setRows } = await client.query(
-        `INSERT INTO tracking.set_logs (session_id, exercise_id, set_number, reps, weight_kg, rpe)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO tracking.set_logs (session_id, exercise_id, set_number, reps, weight_kg, rpe, replaces_exercise_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [session.id, set.exerciseId, set.setNumber, set.reps, set.weightKg, set.rpe ?? null],
+        [session.id, set.exerciseId, set.setNumber, set.reps, set.weightKg, set.rpe ?? null, set.replacesExerciseId ?? null],
       );
       insertedSets.push(mapSetLog(setRows[0]));
     }
@@ -573,21 +583,24 @@ export async function listWorkoutSessionsSince(userId: string, since: Date, limi
   return rows.map(mapSession);
 }
 
-export interface SetWithExercise extends SetLogRow { exerciseName: string }
+export interface SetWithExercise extends SetLogRow { exerciseName: string; /** One-off swap: the planned exercise. */ replacesName: string | null }
 
 /** A session's sets with exercise names, in the template's exercise order (else by name), then set number. */
 export async function listSetsWithExercise(sessionId: string): Promise<SetWithExercise[]> {
   const { rows } = await pool.query(
-    `SELECT sl.*, e.name AS exercise_name
+    `SELECT sl.*, e.name AS exercise_name, r.name AS replaces_name
        FROM tracking.set_logs sl
        JOIN tracking.exercises e ON e.id = sl.exercise_id
+       LEFT JOIN tracking.exercises r ON r.id = sl.replaces_exercise_id
        JOIN tracking.workout_sessions ws ON ws.id = sl.session_id
-       LEFT JOIN tracking.workout_template_exercises te ON te.template_id = ws.template_id AND te.exercise_id = sl.exercise_id
+       -- A one-off swap sits where the exercise it replaced was planned.
+       LEFT JOIN tracking.workout_template_exercises te ON te.template_id = ws.template_id
+         AND te.exercise_id = COALESCE(sl.replaces_exercise_id, sl.exercise_id)
       WHERE sl.session_id = $1
       ORDER BY te."order" NULLS LAST, e.name, sl.set_number`,
     [sessionId],
   );
-  return rows.map((r) => ({ ...mapSetLog(r), exerciseName: r.exercise_name }));
+  return rows.map((r) => ({ ...mapSetLog(r), exerciseName: r.exercise_name, replacesName: r.replaces_name ?? null }));
 }
 
 export async function getActivityLog(id: string): Promise<ActivityLogRow | null> {

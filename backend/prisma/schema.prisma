@@ -158,6 +158,8 @@ model WorkoutTemplateExercise {
   repRange         String?
   /// Exercise this one replaced because of an injury (MVP 2).
   replaces         String?
+  /// Swapped for the rest of the cycle: the planned exercise, for "Back to …".
+  swappedFromExerciseId String?
 
   template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   exercise Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
@@ -199,6 +201,8 @@ model SetLog {
   weightKg   Float
   rpe        Float?
   notes      String?
+  /// One-off swap: the planned exercise this set replaced.
+  replacesExerciseId String?
 
   session  WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   exercise Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)

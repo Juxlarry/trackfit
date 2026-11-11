@@ -99,7 +99,7 @@ export const trackingResolvers = {
           notes?: string | null;
           shareToClubs?: boolean;
           startedAt?: string | null;
-          sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number }[];
+          sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number; replacesExerciseId?: string | null }[];
         };
       },
       ctx: GraphQLContext,

@@ -12,7 +12,12 @@ export interface PlannedExerciseDto {
   suggestedLoadKg: number | null;
   /** From the week-6 check-in: where this cycle starts, until the first log. */
   startLoadKg: number | null;
+  /** Swapped for the rest of the cycle: the planned exercise (README "Exercise swaps"). */
+  swappedFrom: { exerciseId: string; name: string } | null;
 }
+
+export type SwapFilter = "ANY" | "DUMBBELLS" | "BODYWEIGHT";
+export interface ExerciseSwapOptionDto { exerciseId: string; name: string; equipment: string; sameMovement: boolean; reason: string; suggestedLoadKg: number | null }
 
 export interface PlannedSessionDto {
   templateId: string | null;
@@ -283,7 +288,7 @@ export interface ClubWorkoutDto {
   durationMinutes: number | null;
   setCount: number;
   volumeKg: number;
-  exercises: { name: string; sets: { reps: number; weightKg: number }[] }[];
+  exercises: { name: string; swappedFor: string | null; sets: { reps: number; weightKg: number }[] }[];
   prs: { exerciseName: string; type: "HEAVIEST_SET" | "ESTIMATED_1RM" | "MOST_REPS_AT_WEIGHT"; weightKg: number; reps: number; value: number }[];
 }
 

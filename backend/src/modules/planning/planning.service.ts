@@ -6,14 +6,14 @@ import type { UserRow } from "../identity/identity.repository.js";
 import {
   addDaysIso, adaptations, buildWeek, computeProjection, computeTargets, dayRange, generatePlan, isScreenedOut, mondayOf,
   restSuggestion, suggestLoadKg, swapIssue, swappedOrder, toIsoDate, validateDiet, validateIntake, validateTraining, weekTypes, weekdayOf,
-  PLACEHOLDER_DIET, quickTraining,
+  PLACEHOLDER_DIET, quickTraining, exerciseSwapOptions, swapFilters, type SwapFilter,
   type DaySwap, type DietInput, type FuelLifestyle, type GeneratedPlan, type HealthScreening, type IntakeSection, type TrainingBasics,
   type TrainingDetails, type TrainingInput,
 } from "./engine/index.js";
 import {
   archiveActiveProgram, deactivateProgramTemplates, deleteScheduleSwaps, getActiveProgram, getIntake, insertGeneratedTemplates,
   insertProgram, insertScheduleSwap, emailTakenByOther, listActiveSessions, listScheduleSwaps, lockProgram, markOnboarded,
-  saveFuelLifestyle, saveTrainingDetails, setReminderTime, templateLoggedNear, updateProgramSchedule, upsertHealthScreening, upsertIntake,
+  exerciseIdsByName, resetTemplateExercise, saveFuelLifestyle, saveTrainingDetails, swapTemplateExercise, setReminderTime, templateLoggedNear, updateProgramSchedule, upsertHealthScreening, upsertIntake,
   type IntakeExtras, type ScheduleSwapRow, type StoredSession,
 } from "./planning.repository.js";
 import {
@@ -416,4 +416,66 @@ export async function setWorkoutReminder(userId: string, time: string | null): P
   const plan = await getActivePlan(userId);
   if (!plan) throw notFound("No active plan.");
   return plan;
+}
+
+// ── Exercise swaps (README "Exercise swaps") ────────────────────────────
+
+/** The active plan's template and the exercise in it, or not found. */
+async function swapTarget(userId: string, templateId: string, exerciseId: string) {
+  const program = await getActiveProgram(userId);
+  const intake = await getIntake(userId);
+  if (!program || !intake) throw notFound("No active plan.");
+  const sessions = await listActiveSessions(program.id);
+  const session = sessions.find((s) => s.templateId === templateId);
+  const exercise = session?.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!session || !exercise) throw notFound("That exercise isn't in your current plan.");
+  return { program, intake, sessions, session, exercise };
+}
+
+export interface SwapChoice { exerciseId: string; name: string; equipment: string; sameMovement: boolean; reason: string; suggestedLoadKg: number | null }
+
+/** What this exercise can be swapped for: same family, the member's equipment, safe for them, not already in the session. */
+export async function exerciseSwapChoices(userId: string, templateId: string, exerciseId: string, only: SwapFilter = "ANY") {
+  const { intake, sessions, session, exercise } = await swapTarget(userId, templateId, exerciseId);
+  const t = intake.training;
+  const filters = swapFilters(t.equipment);
+  const options = exerciseSwapOptions(exercise.name, {
+    equipment: t.equipment, injuries: t.injuries, liftComfort: t.liftComfort,
+    sessionExercises: session.exercises.map((e) => e.name),
+    planExercises: sessions.flatMap((s) => s.exercises.flatMap((e) => [e.name, ...(e.swappedFrom ? [e.swappedFrom.name] : [])])),
+    only: filters.includes(only) ? only : "ANY",
+  });
+  const ids = await exerciseIdsByName(pool, options.map((o) => o.name));
+  return {
+    filters,
+    options: options.map((o): SwapChoice => ({ ...o, exerciseId: ids.get(o.name.toLowerCase())!, suggestedLoadKg: suggestLoadKg(o.name, t) })),
+  };
+}
+
+/** For the rest of this cycle. Only an option the app would offer is accepted. */
+export async function swapPlanExercise(userId: string, templateId: string, exerciseId: string, toExerciseId: string): Promise<ActivePlan> {
+  const { program } = await swapTarget(userId, templateId, exerciseId);
+  const { options } = await exerciseSwapChoices(userId, templateId, exerciseId);
+  if (!options.some((o) => o.exerciseId === toExerciseId)) throw badInput("That exercise isn't a swap option for this one.");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await lockProgram(client, program.id);
+    if (!(await swapTemplateExercise(client, templateId, exerciseId, toExerciseId))) throw badInput("Your plan changed. Reload and try again.");
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  return (await getActivePlan(userId))!;
+}
+
+/** "Back to …": the planned exercise again. */
+export async function resetPlanExercise(userId: string, templateId: string, exerciseId: string): Promise<ActivePlan> {
+  const { exercise } = await swapTarget(userId, templateId, exerciseId);
+  if (!exercise.swappedFrom) throw badInput("That exercise isn't swapped.");
+  await resetTemplateExercise(pool, templateId, exerciseId);
+  return (await getActivePlan(userId))!;
 }

@@ -65,7 +65,12 @@ export const feedTypeDefs = /* GraphQL */ `
   }
 
   type ClubSet { reps: Int! weightKg: Float! }
-  type ClubWorkoutExercise { name: String! sets: [ClubSet!]! }
+  type ClubWorkoutExercise {
+    name: String!
+    "A one-off swap: the planned exercise this replaced."
+    swappedFor: String
+    sets: [ClubSet!]!
+  }
 
   type ClubPr {
     exerciseName: String!

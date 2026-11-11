@@ -307,6 +307,37 @@ export async function deleteScheduleSwaps(db: Db, programId: string, weekStart: 
   );
 }
 
+/** Exercise ids by name, creating library rows for any not seeded yet (swap options include new library exercises). */
+export async function exerciseIdsByName(db: Db, names: string[]): Promise<Map<string, string>> {
+  return resolveExerciseIds(db, names);
+}
+
+/**
+ * Swap a template's exercise for the rest of the cycle. The original is kept
+ * (swapping again from a swapped exercise still remembers the first one).
+ */
+export async function swapTemplateExercise(db: Db, templateId: string, fromExerciseId: string, toExerciseId: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `UPDATE tracking.workout_template_exercises
+        SET swapped_from_exercise_id = CASE WHEN COALESCE(swapped_from_exercise_id, exercise_id) = $3 THEN NULL
+                                            ELSE COALESCE(swapped_from_exercise_id, exercise_id) END,
+            exercise_id = $3
+      WHERE template_id = $1 AND exercise_id = $2`,
+    [templateId, fromExerciseId, toExerciseId],
+  );
+  return rowCount === 1;
+}
+
+/** Back to the planned exercise. */
+export async function resetTemplateExercise(db: Db, templateId: string, exerciseId: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `UPDATE tracking.workout_template_exercises SET exercise_id = swapped_from_exercise_id, swapped_from_exercise_id = NULL
+      WHERE template_id = $1 AND exercise_id = $2 AND swapped_from_exercise_id IS NOT NULL`,
+    [templateId, exerciseId],
+  );
+  return rowCount === 1;
+}
+
 /** Serialises swap writes for a program so the weekly limit can't be raced. */
 export async function lockProgram(db: Db, programId: string) {
   await db.query(`SELECT 1 FROM tracking.generated_programs WHERE id = $1 FOR UPDATE`, [programId]);
@@ -324,17 +355,20 @@ export async function templateLoggedNear(userId: string, templateId: string, dat
 
 export interface StoredSession extends PlannedSession {
   templateId: string;
-  exercises: (PlannedSession["exercises"][number] & { exerciseId: string })[];
+  /** swappedFrom: the planned exercise, while swapped for the rest of the cycle. */
+  exercises: (PlannedSession["exercises"][number] & { exerciseId: string; swappedFrom: { exerciseId: string; name: string } | null })[];
 }
 
 /** The active week, read back from the stored templates (the source of truth once generated). */
 export async function listActiveSessions(programId: string, db: Db = pool): Promise<StoredSession[]> {
   const { rows } = await db.query(
     `SELECT t.id AS template_id, t.name, t.weekday, t.session_type, t.warmup,
-            te."order", te.target_sets, te.rep_range, te.target_reps, te.replaces, e.id AS exercise_id, e.name AS exercise_name, e.pattern
+            te."order", te.target_sets, te.rep_range, te.target_reps, te.replaces, e.id AS exercise_id, e.name AS exercise_name, e.pattern,
+            te.swapped_from_exercise_id, f.name AS swapped_from_name
      FROM tracking.workout_templates t
      JOIN tracking.workout_template_exercises te ON te.template_id = t.id
      JOIN tracking.exercises e ON e.id = te.exercise_id
+     LEFT JOIN tracking.exercises f ON f.id = te.swapped_from_exercise_id
      WHERE t.program_id = $1 AND t.is_active
      ORDER BY t.weekday, te."order"`,
     [programId],
@@ -351,6 +385,7 @@ export async function listActiveSessions(programId: string, db: Db = pool): Prom
       sets: r.target_sets, reps: r.rep_range ?? String(r.target_reps),
       isCore: /crunch|knee raise|dead bug|plank|hollow|pallof|side bend/i.test(r.exercise_name),
       swapped: !!r.replaces, replaces: r.replaces,
+      swappedFrom: r.swapped_from_exercise_id ? { exerciseId: r.swapped_from_exercise_id, name: r.swapped_from_name } : null,
     });
   }
   return [...byTemplate.values()].sort((a, b) => a.weekday - b.weekday);

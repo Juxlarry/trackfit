@@ -179,7 +179,7 @@ export const PLAN_FIELDS = gql`
       type
       name
       warmup { name dose }
-      exercises { exerciseId name pattern sets reps isCore swapped replaces suggestedLoadKg startLoadKg }
+      exercises { exerciseId name pattern sets reps isCore swapped replaces suggestedLoadKg startLoadKg swappedFrom { exerciseId name } }
     }
     restDays { weekday suggestion }
     adaptations { icon text }
@@ -566,7 +566,7 @@ export const CLUB_PERSON_FIELDS = gql`
 export const CLUB_WORKOUT_FIELDS = gql`
   fragment ClubWorkoutFields on ClubWorkout {
     id name startedAt durationMinutes setCount volumeKg
-    exercises { name sets { reps weightKg } }
+    exercises { name swappedFor sets { reps weightKg } }
     prs { exerciseName type weightKg reps value }
   }
 `;
@@ -821,4 +821,25 @@ export const COMMENT_ON_CLUB_CHALLENGE = gql`
 
 export const DELETE_CLUB_CHALLENGE_COMMENT = gql`
   mutation DeleteClubChallengeComment($id: ID!) { deleteClubChallengeComment(id: $id) { comments { id } } }
+`;
+
+// ── Exercise swaps ──────────────────────────────────────────────────────
+
+export const EXERCISE_SWAP_OPTIONS = gql`
+  query ExerciseSwapOptions($templateId: ID!, $exerciseId: ID!, $only: SwapFilter) {
+    exerciseSwapOptions(templateId: $templateId, exerciseId: $exerciseId, only: $only) {
+      filters
+      options { exerciseId name equipment sameMovement reason suggestedLoadKg }
+    }
+  }
+`;
+
+export const SWAP_PLAN_EXERCISE = gql`
+  mutation SwapPlanExercise($templateId: ID!, $exerciseId: ID!, $toExerciseId: ID!) {
+    swapPlanExercise(templateId: $templateId, exerciseId: $exerciseId, toExerciseId: $toExerciseId) { programId }
+  }
+`;
+
+export const RESET_PLAN_EXERCISE = gql`
+  mutation ResetPlanExercise($templateId: ID!, $exerciseId: ID!) { resetPlanExercise(templateId: $templateId, exerciseId: $exerciseId) { programId } }
 `;

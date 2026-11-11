@@ -112,6 +112,8 @@ export const trackingTypeDefs = /* GraphQL */ `
     reps: Int!
     weightKg: Float!
     rpe: Float
+    "A one-off exercise swap: the planned exercise (in this session's template) this set replaces."
+    replacesExerciseId: ID
   }
 
   input LogWorkoutSessionInput {

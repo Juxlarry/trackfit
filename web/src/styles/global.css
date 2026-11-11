@@ -1034,3 +1034,18 @@ svg.inl{width:14px;height:14px;vertical-align:-2px;margin-right:4px}
 .gate-card h3{margin:2px 0 4px}
 .gate-card .help{margin:0}
 .gate-card>.ghost{grid-column:2;justify-self:start}
+/* Exercise swaps */
+.ex-swap{display:flex;gap:14px;margin-top:4px;font-family:var(--f-body)}
+.ex-swap .linkbtn{font-size:12.5px;padding:0;font-family:var(--f-body)}
+.exn .tag{font-family:var(--f-body)}
+.ex-acts{display:inline-flex;gap:12px;align-items:center}
+.back-to{font-size:12.5px;padding:0;margin-top:2px}
+.swap-filter{margin:12px 0 4px}
+.swap-opts{margin-top:12px}
+.swap-opt{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;text-align:left}
+.swap-opt .thumb{width:56px;height:46px;flex:none}
+.swap-opt .t{display:block;font-weight:600}
+.swap-opt .d{display:block;font-size:12.5px;color:var(--ink-3)}
+.swap-opt .tag{margin:0;white-space:nowrap}
+.wswap{display:block;font-weight:400;font-size:12px;color:var(--ink-3)}
+@media (max-width:640px){.excard-h{grid-template-columns:auto minmax(0,1fr)}.excard-h .ex-acts{grid-column:1 / -1;justify-content:flex-end}}

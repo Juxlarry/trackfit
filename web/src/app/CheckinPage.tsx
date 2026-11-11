@@ -235,6 +235,9 @@ function Preview({ today, answers, details, next, keep, setKeep, startDate, setS
   today: string; answers: CheckinAnswers; details: ReturnType<typeof toDetailsInput> | null; next: number; keep: string[]; setKeep: (k: string[]) => void; startDate: string; setStartDate: (d: string) => void;
 }) {
   const units = useUnits();
+  const { plan } = usePlan();
+  // Cycle swaps end here (README "Exercise swaps"): list them so they're easy to make again.
+  const swapped = [...new Map((plan?.sessions ?? []).flatMap((s) => s.exercises.filter((e) => e.swappedFrom).map((e) => [e.name, e.swappedFrom!.name] as const))).entries()];
   const q = useQuery<{ previewNextCycle: CyclePreviewDto }>(PREVIEW_NEXT_CYCLE, { variables: { today, answers, details } });
   const p = q.data?.previewNextCycle;
   // One row per swap, plus swaps the user undid (shown as kept).
@@ -250,6 +253,9 @@ function Preview({ today, answers, details, next, keep, setKeep, startDate, setS
     <>
       <section className="card fadein">
         <div className="card-h"><div><h3>What changes</h3><p>{p.daysPerWeek} days a week, {p.splitLabel.toLowerCase()}. {p.targets.kcal.toLocaleString("en-GB")} kcal and {p.targets.proteinG} g protein a day.</p></div></div>
+        {swapped.length > 0 && (
+          <div className="note" role="note" style={{ marginBottom: 14 }}><Repeat /><span>This cycle you swapped {swapped.map(([to, from]) => `${from} for ${to}`).join(", ")}. Cycle {next} starts from the plan again, so swap them back in a workout if you liked them.</span></div>
+        )}
         <div className="adapt">
           <ul style={{ display: "flex", flexDirection: "column", gap: 14, padding: 0, margin: 0, listStyle: "none" }}>
             {p.changes.map((x, k) => {

@@ -217,7 +217,7 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 
 ## Exercise swaps (spec)
 
-**Status: approved November 2026, not built yet.** The choices are listed under [Swap decisions](#swap-decisions). It'll be built on `feature/exercise-swaps`.
+**Status: approved and built November 2026** on `feature/exercise-swaps` (see [Swaps as built](#swaps-as-built)). The choices are listed under [Swap decisions](#swap-decisions).
 
 ### Why
 
@@ -294,7 +294,7 @@ Checked against today's library of 86 exercises:
 - **Full gym:** every exercise has 2 or more options except the cable fly, which has 1.
 - **Dumbbells, bands or bodyweight:** several have 0 or 1, including calf raises, the dumbbell floor fly, the pullover, the Superman hold, the band chest press and the band pull-apart.
 
-So this step adds about 12 exercises to close the gaps, such as a seated DB calf raise, DB fly, band fly, prone Y-T raise, reverse snow angel and band straight-arm pulldown. Each gets a family, a movement pattern for its illustration, and form cues.
+So this step adds 21 exercises to close the gaps, such as a seated DB calf raise, DB fly, band fly, prone Y-T raise, reverse snow angel and band straight-arm pulldown. Each gets a family, a movement pattern for its illustration, and form cues.
 
 **Found while checking:** bodyweight-only members are given band exercises today, because bands and bodyweight share one exercise pool. Swaps follow the equipment table above, so a bodyweight-only member gets bodyweight options for those. Fixing the plan generator itself is a separate change, not part of this step.
 
@@ -328,6 +328,23 @@ Decided by the App Owner in November 2026:
 3. **Mid-exercise:** swapping is only possible before the first set of that exercise is ticked.
 4. **Bodyweight-only members:** swap options offer bodyweight moves only. Fixing the generator's band exercises is a separate change.
 5. **Equipment filter:** offered for the day, with "Any I have" (the default), "Dumbbells" and "Bodyweight".
+
+### Swaps as built
+
+- **Engine:** `engine/swaps.ts` holds the families, the 21 added exercises (`SWAP_EXTRAS`), the equipment table and `exerciseSwapOptions`. Every added exercise reuses an existing illustration and its form cues (`web/src/figures/figureEngine.ts`).
+  - **Equipment labels:** they were guessed from the exercise name, and about a dozen came out wrong (for example "Calf raise" read as a machine). Swaps use a correction table. Pull-ups and hanging knee raises count as gym equipment, since both need a bar.
+  - **Case:** lookups ignore it, because the original exercise library spells some names differently ("Lat Pulldown").
+  - **Coverage:** with a full or small gym, every planned exercise has at least 2 options. With dumbbells, bands or bodyweight, a few have 1. A unit test checks that every planned exercise has at least one.
+- **API:** `sql/015_exercise_swaps.sql`.
+  - `exerciseSwapOptions` lists the options. `swapPlanExercise` and `resetPlanExercise` save and undo cycle swaps, and refuse anything the options wouldn't offer.
+  - `PlannedExercise.swappedFrom` names the planned exercise for **Back to …**.
+- **Checking one-off swaps:** a logged set's `replacesExerciseId` must be in that workout's plan, and the new exercise must be in the same family. Equipment and injuries aren't checked again at logging; the app only offers options that already passed those checks.
+- **Showing what was replaced:** workout details show "swapped for …", for the member and their club's coaches.
+- **Web:** the swap sheet is `app/ExerciseSwap.tsx`.
+  - **Train and the session preview:** **Swap** for the rest of the cycle, and **Back to …**. The preview swaps without leaving the preview.
+  - **The workout:** both lengths are offered, until the exercise's first set is ticked.
+  - **Check-in:** the preview lists the cycle's swaps, which end there.
+
 
 ## Quick start onboarding (spec)
 
