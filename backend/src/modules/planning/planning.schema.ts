@@ -105,6 +105,20 @@ export const planningTypeDefs = /* GraphQL */ `
   type PlanTargets { bmr: Int! tdee: Int! kcal: Int! proteinG: Int! carbsG: Int! fatG: Int! }
   type PlanProjection { weeks: Int! weeklyRateKg: Float! endDate: String! }
   type WarmupItem { name: String! dose: String! }
+  enum ProgressionOfferKind { WEIGHT_UP REPS_UP GOAL LIGHTER }
+
+  type ProgressionOffer {
+    kind: ProgressionOfferKind!
+    "Suggested load for every set; null for bodyweight moves."
+    weightKg: Float
+    "Suggested reps (seconds for timed holds) for every set."
+    reps: Int!
+    "Steady sessions in a row behind the offer."
+    steady: Int!
+    fromWeightKg: Float
+    fromReps: Int!
+  }
+
   type PlannedExercise {
     "Swapped for the rest of the cycle: the planned exercise, for Back to …. Null otherwise."
     swappedFrom: ExerciseRef
@@ -121,6 +135,8 @@ export const planningTypeDefs = /* GraphQL */ `
     suggestedLoadKg: Float
     "Starting weight from weeks 5-6 of the last cycle (week-6 check-in). Use it until the first log this cycle."
     startLoadKg: Float
+    "What to offer next time, from steady logging and ease ratings (README, Exercise ease). Always asked first; null = last time's numbers."
+    offer: ProgressionOffer
     "In a check-in preview: last cycle's exercise this one replaces for variety."
     rotatedFrom: String
   }

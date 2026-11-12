@@ -35,7 +35,7 @@ function slotByClock(): MealSlot {
 type Mutated = { logFood?: MealDayDto; changeFoodLog?: MealDayDto; removeFoodLog?: MealDayDto };
 
 /** challengeId: start on that club food challenge (from Today's challenge card). */
-export function FoodSheet({ date, day, editing, challengeId, onDone }: { date: string; day: MealDayDto; editing: FoodLogDto | null; challengeId?: string | null; onDone: () => void }) {
+export function FoodSheet({ date, day, editing, slot: startSlot, challengeId, onDone }: { date: string; day: MealDayDto; editing: FoodLogDto | null; /** From "Log breakfast" etc. on Fuel. */ slot?: MealSlot | null; challengeId?: string | null; onDone: () => void }) {
   const toast = useToast();
   const imperial = useUnits().unit === "lb";
   const mine = useQuery<{ myFoods: { custom: CustomFoodDto[]; recent: FoodLogDto[] } }>(MY_FOODS, { fetchPolicy: "cache-and-network" });
@@ -55,7 +55,7 @@ export function FoodSheet({ date, day, editing, challengeId, onDone }: { date: s
   const [portion, setPortion] = useState<number | "g">(editing ? (editing.grams != null ? "g" : editing.portionIndex ?? 0) : 0);
   const [grams, setGrams] = useState(editing?.grams ? String(editing.grams) : "");
   const [qty, setQty] = useState(editing?.quantity ?? 1);
-  const [slot, setSlot] = useState<MealSlot>(editing?.slot ?? slotByClock());
+  const [slot, setSlot] = useState<MealSlot>(editing?.slot ?? startSlot ?? slotByClock());
   const [instead, setInstead] = useState(true);
   const [quick, setQuick] = useState({ name: "", kcal: "", p: "", c: "", f: "" });
   // Food challenges you've taken on: a quick option, then proof once it's logged.

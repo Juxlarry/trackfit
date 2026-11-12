@@ -13,7 +13,7 @@ const plan: ReminderPlan = {
   swaps: [],
 };
 const at = (date: string, hhmm: string) => ({ date, minutes: Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3)) });
-const none = { loggedToday: false, loggedYesterday: false, weighedRecently: false, photosThisCycle: [] as string[] };
+const none = { loggedToday: false, loggedYesterday: false, weighedToday: false, photosThisCycle: [] as string[] };
 const kinds = (p: ReminderPlan, date: string, hhmm: string, facts = none) => dueReminders(p, at(date, hhmm), facts).map((r) => r.kind);
 
 test("local time follows the user's time zone, not the server's", () => {
@@ -67,15 +67,20 @@ test("training-day reminder: skipped once today's workout is logged", () => {
   assert.deepEqual(kinds(plan, "2026-11-02", "17:30", { ...none, loggedToday: true }), []);
 });
 
-test("weigh-in: 07:30 on plan days 7, 14, 21, 28 and 35, unless weighed in the last 3 days", () => {
+test("weigh-in: every morning at the chosen time, days 1 to 39, unless weighed in today", () => {
   assert.deepEqual(kinds(plan, "2026-11-02", "07:30"), [], "day 0 is on the Today checklist instead");
-  assert.deepEqual(kinds(plan, "2026-11-09", "07:29"), []);
-  assert.deepEqual(kinds(plan, "2026-11-09", "07:30"), ["WEIGH_IN"], "day 7");
-  assert.deepEqual(kinds(plan, "2026-11-10", "07:30"), [], "day 8");
-  assert.deepEqual(kinds(plan, "2026-11-30", "07:45"), ["WEIGH_IN"], "day 28");
+  assert.deepEqual(kinds(plan, "2026-11-03", "07:29"), []);
+  assert.deepEqual(kinds(plan, "2026-11-03", "07:30", { ...none, loggedYesterday: true }), ["WEIGH_IN"], "day 1");
+  assert.deepEqual(kinds(plan, "2026-11-10", "07:30"), ["WEIGH_IN"], "day 8");
+  assert.equal(dueReminders(plan, at("2026-11-10", "07:30"))[0].msg.url, "/today?weigh=1");
+  assert.deepEqual(kinds(plan, "2026-12-11", "07:30"), ["WEIGH_IN"], "day 39");
   assert.deepEqual(kinds(plan, "2026-12-14", "07:30"), ["CHECKIN_READY"], "day 42 belongs to the check-in");
-  assert.deepEqual(kinds(plan, "2026-11-09", "07:30", { ...none, weighedRecently: true }), []);
-  assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, weighIn: false } }, "2026-11-09", "07:30"), []);
+  assert.deepEqual(kinds(plan, "2026-11-10", "07:30", { ...none, weighedToday: true }), []);
+  assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, weighIn: false } }, "2026-11-10", "07:30"), []);
+  const six = { ...plan, prefs: { ...DEFAULT_PREFS, weighInTime: "06:15" } };
+  assert.deepEqual(kinds(six, "2026-11-10", "06:15"), ["WEIGH_IN"], "at the chosen time");
+  assert.deepEqual(kinds(six, "2026-11-10", "07:50"), [], "not at the old time");
+  assert.equal(dueReminders(six, at("2026-11-16", "06:20"))[0].msg.title, "Weigh-in day, and your Week 3 photo", "photo slot follows the weigh-in time");
 });
 
 test("photo slots: one morning notification with the weigh-in, or alone when the weigh-in isn't needed", () => {
@@ -83,31 +88,31 @@ test("photo slots: one morning notification with the weigh-in, or alone when the
   assert.deepEqual(both.map((r) => r.kind), ["WEIGH_IN"], "day 14: a single notification");
   assert.equal(both[0].msg.title, "Weigh-in day, and your Week 3 photo");
   assert.equal(both[0].msg.url, "/progress");
-  const alone = dueReminders(plan, at("2026-12-07", "07:30"), { ...none, weighedRecently: true });
+  const alone = dueReminders(plan, at("2026-12-07", "07:30"), { ...none, weighedToday: true });
   assert.deepEqual(alone.map((r) => [r.kind, r.msg.title]), [["PROGRESS_PHOTO", "Your Week 6 photo slot is open"]], "day 35");
   assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, weighIn: false } }, "2026-11-16", "07:30"), ["PROGRESS_PHOTO"]);
-  assert.equal(dueReminders({ ...plan, prefs: { ...DEFAULT_PREFS, progressPhotos: false } }, at("2026-11-16", "07:30"), none)[0].msg.title, "Weigh-in day");
+  assert.equal(dueReminders({ ...plan, prefs: { ...DEFAULT_PREFS, progressPhotos: false } }, at("2026-11-16", "07:30"), none)[0].msg.title, "Morning weigh-in");
 });
 
 test("photo slots: skipped once this cycle's photo for that slot is saved", () => {
   const taken = { ...none, photosThisCycle: ["Week 3"] };
-  assert.equal(dueReminders(plan, at("2026-11-16", "07:30"), taken)[0].msg.title, "Weigh-in day", "weigh-in without the photo line");
-  assert.deepEqual(kinds(plan, "2026-11-16", "07:30", { ...taken, weighedRecently: true }), [], "nothing left to remind");
-  assert.deepEqual(kinds(plan, "2026-12-07", "07:30", { ...taken, weighedRecently: true }), ["PROGRESS_PHOTO"], "Week 6 still open");
+  assert.equal(dueReminders(plan, at("2026-11-16", "07:30"), taken)[0].msg.title, "Morning weigh-in", "weigh-in without the photo line");
+  assert.deepEqual(kinds(plan, "2026-11-16", "07:30", { ...taken, weighedToday: true }), [], "nothing left to remind");
+  assert.deepEqual(kinds(plan, "2026-12-07", "07:30", { ...taken, weighedToday: true }), ["PROGRESS_PHOTO"], "Week 6 still open");
 });
 
 test("missed session: 08:00 the morning after a planned session with nothing logged", () => {
-  const r = dueReminders(plan, at("2026-11-03", "08:00"), none);
+  const r = dueReminders(plan, at("2026-11-03", "08:00"), { ...none, weighedToday: true });
   assert.deepEqual(r.map((x) => [x.kind, x.msg.title]), [["MISSED_SESSION", "Missed Upper A yesterday?"]]);
-  assert.deepEqual(kinds(plan, "2026-11-03", "08:00", { ...none, loggedYesterday: true }), []);
-  assert.deepEqual(kinds(plan, "2026-11-04", "08:00"), [], "yesterday was a rest day");
+  assert.deepEqual(kinds(plan, "2026-11-03", "08:00", { ...none, loggedYesterday: true, weighedToday: true }), []);
+  assert.deepEqual(kinds(plan, "2026-11-04", "08:00", { ...none, weighedToday: true }), [], "yesterday was a rest day");
   assert.deepEqual(kinds(plan, "2026-11-02", "08:00"), [], "no session the day before the plan");
   assert.deepEqual(kinds(plan, "2026-12-14", "08:00"), ["CHECKIN_READY"], "no missed session after a rest day (Sunday), just the check-in");
-  assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, missedSession: false } }, "2026-11-03", "08:00"), []);
+  assert.deepEqual(kinds({ ...plan, prefs: { ...DEFAULT_PREFS, missedSession: false } }, "2026-11-03", "08:00", { ...none, weighedToday: true }), []);
 });
 
 test("check-in: 07:30 on days 40, 41 and 42, not switchable", () => {
-  const off = { ...plan, prefs: { weighIn: false, progressPhotos: false, missedSession: false, clubChallenges: true } };
+  const off = { ...plan, prefs: { ...DEFAULT_PREFS, weighIn: false, progressPhotos: false, missedSession: false } };
   assert.deepEqual(kinds(off, "2026-12-11", "07:30"), [], "day 39");
   assert.deepEqual(kinds(off, "2026-12-12", "07:30"), ["CHECKIN_READY"], "day 40");
   assert.deepEqual(kinds(off, "2026-12-13", "07:30"), ["CHECKIN_READY"]);

@@ -9,22 +9,22 @@ export interface PushSubscriptionRow {
 
 export type ReminderKind = "TRAINING_DAY" | "PLAN_START_EVE" | "WEIGH_IN" | "PROGRESS_PHOTO" | "MISSED_SESSION" | "CHECKIN_READY";
 
-export interface ReminderPrefsRow { weighIn: boolean; progressPhotos: boolean; missedSession: boolean; clubChallenges: boolean }
+export interface ReminderPrefsRow { weighIn: boolean; progressPhotos: boolean; missedSession: boolean; clubChallenges: boolean; /** HH:MM, local. */ weighInTime: string }
 
 /** No row means everything is on. */
 export async function getReminderPrefs(userId: string): Promise<ReminderPrefsRow> {
-  const { rows } = await pool.query(`SELECT weigh_in, progress_photos, missed_session, club_challenges FROM notifications.reminder_prefs WHERE user_id = $1`, [userId]);
+  const { rows } = await pool.query(`SELECT weigh_in, progress_photos, missed_session, club_challenges, weigh_in_time FROM notifications.reminder_prefs WHERE user_id = $1`, [userId]);
   const r = rows[0];
   return r
-    ? { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session, clubChallenges: r.club_challenges }
-    : { weighIn: true, progressPhotos: true, missedSession: true, clubChallenges: true };
+    ? { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session, clubChallenges: r.club_challenges, weighInTime: r.weigh_in_time }
+    : { weighIn: true, progressPhotos: true, missedSession: true, clubChallenges: true, weighInTime: "07:30" };
 }
 
 export async function setReminderPrefs(userId: string, p: ReminderPrefsRow) {
   await pool.query(
-    `INSERT INTO notifications.reminder_prefs (user_id, weigh_in, progress_photos, missed_session, club_challenges) VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (user_id) DO UPDATE SET weigh_in = $2, progress_photos = $3, missed_session = $4, club_challenges = $5, updated_at = now()`,
-    [userId, p.weighIn, p.progressPhotos, p.missedSession, p.clubChallenges],
+    `INSERT INTO notifications.reminder_prefs (user_id, weigh_in, progress_photos, missed_session, club_challenges, weigh_in_time) VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (user_id) DO UPDATE SET weigh_in = $2, progress_photos = $3, missed_session = $4, club_challenges = $5, weigh_in_time = $6, updated_at = now()`,
+    [userId, p.weighIn, p.progressPhotos, p.missedSession, p.clubChallenges, p.weighInTime],
   );
 }
 
@@ -89,7 +89,8 @@ export async function listReminderCandidates(): Promise<ReminderCandidate[]> {
     `SELECT u.id AS user_id, u.time_zone, i.reminder_time, p.id AS program_id, p.cycle_number,
             to_char(p.start_date, 'YYYY-MM-DD') AS start_date, to_char(p.end_date, 'YYYY-MM-DD') AS end_date,
             COALESCE(rp.weigh_in, true) AS weigh_in, COALESCE(rp.progress_photos, true) AS progress_photos,
-            COALESCE(rp.missed_session, true) AS missed_session
+            COALESCE(rp.missed_session, true) AS missed_session, COALESCE(rp.club_challenges, true) AS club_challenges,
+            COALESCE(rp.weigh_in_time, '07:30') AS weigh_in_time
        FROM identity.users u
        JOIN tracking.generated_programs p ON p.user_id = u.id AND p.status = 'ACTIVE'
        LEFT JOIN identity.intake_profiles i ON i.user_id = u.id
@@ -100,32 +101,32 @@ export async function listReminderCandidates(): Promise<ReminderCandidate[]> {
   return rows.map((r) => ({
     userId: r.user_id, timeZone: r.time_zone, reminderTime: r.reminder_time,
     programId: r.program_id, cycleNumber: r.cycle_number, startDate: r.start_date, endDate: r.end_date,
-    prefs: { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session, clubChallenges: r.club_challenges ?? true },
+    prefs: { weighIn: r.weigh_in, progressPhotos: r.progress_photos, missedSession: r.missed_session, clubChallenges: r.club_challenges ?? true, weighInTime: r.weigh_in_time },
   }));
 }
 
 export interface ReminderFacts {
   loggedToday: boolean;
   loggedYesterday: boolean;
-  weighedRecently: boolean;
+  weighedToday: boolean;
   /** Photo slots ("Week 3", "Week 6") holding a photo saved on or after the plan's start date. */
   photosThisCycle: string[];
 }
 
 /**
  * What the user already did, by their local calendar: workouts today/yesterday,
- * a weigh-in in the last 3 days, photos taken this cycle.
+ * a weigh-in today, photos taken this cycle.
  */
 export async function reminderFacts(userId: string, timeZone: string, localDate: string, startDate: string): Promise<ReminderFacts> {
   const { rows } = await pool.query(
     `SELECT
        EXISTS (SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date) AS logged_today,
        EXISTS (SELECT 1 FROM tracking.workout_sessions WHERE user_id = $1 AND (started_at AT TIME ZONE $2)::date = $3::date - 1) AS logged_yesterday,
-       EXISTS (SELECT 1 FROM tracking.weight_entries WHERE user_id = $1 AND (recorded_at AT TIME ZONE $2)::date BETWEEN $3::date - 2 AND $3::date) AS weighed_recently,
+       EXISTS (SELECT 1 FROM tracking.weight_entries WHERE user_id = $1 AND (recorded_at AT TIME ZONE $2)::date = $3::date) AS weighed_today,
        ARRAY(SELECT slot FROM tracking.progress_photos WHERE user_id = $1 AND (saved_at AT TIME ZONE $2)::date >= $4::date) AS photos`,
     [userId, timeZone, localDate, startDate],
   );
-  return { loggedToday: rows[0].logged_today, loggedYesterday: rows[0].logged_yesterday, weighedRecently: rows[0].weighed_recently, photosThisCycle: rows[0].photos };
+  return { loggedToday: rows[0].logged_today, loggedYesterday: rows[0].logged_yesterday, weighedToday: rows[0].weighed_today, photosThisCycle: rows[0].photos };
 }
 
 /** Records the reminder before sending. False when another run already claimed it. */

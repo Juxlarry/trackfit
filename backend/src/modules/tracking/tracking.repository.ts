@@ -304,6 +304,9 @@ export interface ActivityLogRow {
   kcalEstimated: boolean;
   avgHeartRate: number | null;
   effort: string | null;
+  /** OUTDOOR or TREADMILL. */
+  setting: string;
+  inclinePct: number | null;
   createdAt: Date;
 }
 
@@ -311,18 +314,19 @@ function mapActivity(r: any): ActivityLogRow {
   return {
     id: r.id, userId: r.user_id, performedOn: r.performed_on, kind: r.kind, activityType: r.activity_type,
     durationMinutes: r.duration_minutes, distanceKm: r.distance_km == null ? null : Number(r.distance_km),
-    kcal: r.kcal, kcalEstimated: r.kcal_estimated, avgHeartRate: r.avg_heart_rate, effort: r.effort, createdAt: r.created_at,
+    kcal: r.kcal, kcalEstimated: r.kcal_estimated, avgHeartRate: r.avg_heart_rate, effort: r.effort,
+    setting: r.setting ?? "OUTDOOR", inclinePct: r.incline_pct == null ? null : Number(r.incline_pct), createdAt: r.created_at,
   };
 }
 
 const ACTIVITY_COLUMNS = `id, user_id, to_char(performed_on,'YYYY-MM-DD') AS performed_on, kind, activity_type, duration_minutes,
-  distance_km, kcal, kcal_estimated, avg_heart_rate, effort, created_at`;
+  distance_km, kcal, kcal_estimated, avg_heart_rate, effort, setting, incline_pct, created_at`;
 
 export async function insertActivityLog(a: Omit<ActivityLogRow, "id" | "createdAt">): Promise<ActivityLogRow> {
   const { rows } = await pool.query(
-    `INSERT INTO tracking.activity_logs (user_id, performed_on, kind, activity_type, duration_minutes, distance_km, kcal, kcal_estimated, avg_heart_rate, effort)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ${ACTIVITY_COLUMNS}`,
-    [a.userId, a.performedOn, a.kind, a.activityType, a.durationMinutes, a.distanceKm, a.kcal, a.kcalEstimated, a.avgHeartRate, a.effort],
+    `INSERT INTO tracking.activity_logs (user_id, performed_on, kind, activity_type, duration_minutes, distance_km, kcal, kcal_estimated, avg_heart_rate, effort, setting, incline_pct)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING ${ACTIVITY_COLUMNS}`,
+    [a.userId, a.performedOn, a.kind, a.activityType, a.durationMinutes, a.distanceKm, a.kcal, a.kcalEstimated, a.avgHeartRate, a.effort, a.setting, a.inclinePct],
   );
   return mapActivity(rows[0]);
 }
@@ -420,6 +424,8 @@ export interface LogWorkoutSessionInput {
   startedAt?: Date | null;
   /** replacesExerciseId: a one-off exercise swap, checked by the service. */
   sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number | null; replacesExerciseId?: string | null }[];
+  /** How each exercise felt; checked by the service (one per exercise with a logged set). */
+  ratings?: { exerciseId: string; ease: "EASY" | "OKAY" | "HARD" }[] | null;
 }
 
 export interface LogWorkoutSessionResult {
@@ -479,6 +485,13 @@ export async function logWorkoutSessionWithMilestones(
         [session.id, set.exerciseId, set.setNumber, set.reps, set.weightKg, set.rpe ?? null, set.replacesExerciseId ?? null],
       );
       insertedSets.push(mapSetLog(setRows[0]));
+    }
+
+    for (const r of input.ratings ?? []) {
+      await client.query(
+        `INSERT INTO tracking.exercise_ratings (session_id, exercise_id, ease) VALUES ($1, $2, $3)`,
+        [session.id, r.exerciseId, r.ease],
+      );
     }
 
     const milestones: MilestoneRow[] = [];

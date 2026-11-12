@@ -6,9 +6,11 @@ export const notificationsTypeDefs = /* GraphQL */ `
 
   "Optional reminders, each on unless turned off. The workout reminder time is ActivePlan.profile.reminderTime."
   type ReminderPrefs {
-    "07:30 on plan days 7, 14, 21, 28 and 35."
+    "Every morning at weighInTime, skipped once you've weighed in that day."
     weighIn: Boolean!
-    "07:30 when the Week 3 and Week 6 photo slots open."
+    "HH:MM in your time zone. Default 07:30."
+    weighInTime: String!
+    "At the weigh-in time (07:30 with weigh-ins off) when the Week 3 and Week 6 photo slots open."
     progressPhotos: Boolean!
     "08:00 the day after a planned session with no workout logged."
     missedSession: Boolean!
@@ -22,6 +24,8 @@ export const notificationsTypeDefs = /* GraphQL */ `
     missedSession: Boolean!
     "Left out: unchanged."
     clubChallenges: Boolean
+    "HH:MM, 15-minute steps. Left out: unchanged."
+    weighInTime: String
   }
 
   input PushSubscriptionInput {

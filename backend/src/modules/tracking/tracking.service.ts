@@ -58,6 +58,12 @@ export async function logWorkoutSession(input: LogWorkoutSessionInput) {
       }
     }
   }
+  if (input.ratings?.length) {
+    const logged = new Set(input.sets.map((s) => s.exerciseId));
+    const rated = input.ratings.map((r) => r.exerciseId);
+    if (rated.some((id) => !logged.has(id))) throw badInput("Only exercises with a logged set can be rated.");
+    if (new Set(rated).size !== rated.length) throw badInput("Rate each exercise once.");
+  }
   if (input.startedAt && Number.isNaN(input.startedAt.getTime())) throw badInput("startedAt must be an ISO date-time.");
   if (input.startedAt && input.startedAt.getTime() > Date.now() + 36 * 3600_000) throw badInput("You can't log a workout in the future.");
   const result = await logWorkoutSessionWithMilestones(input);
@@ -105,6 +111,9 @@ export interface LogActivityInput {
   kcal?: number | null;
   avgHeartRate?: number | null;
   effort?: Effort | null;
+  /** Walks and runs: OUTDOOR (default) or TREADMILL, with an optional incline. */
+  setting?: "OUTDOOR" | "TREADMILL" | null;
+  inclinePct?: number | null;
 }
 
 /**
@@ -121,6 +130,10 @@ export async function logActivity(input: LogActivityInput) {
   if (input.distanceKm != null && !type.distance) throw badInput(`${type.label} doesn't take a distance.`);
   if (input.avgHeartRate != null && (input.avgHeartRate < 30 || input.avgHeartRate > 230)) throw badInput("Heart rate must be between 30 and 230 bpm.");
   if (input.kcal != null && (input.kcal < 0 || input.kcal > 5000)) throw badInput("Calories must be between 0 and 5000.");
+  const treadmill = input.setting === "TREADMILL";
+  if (treadmill && input.activityType !== "WALK" && input.activityType !== "RUN") throw badInput("Only walks and runs can be on a treadmill.");
+  if (input.inclinePct != null && !treadmill) throw badInput("Incline is for treadmill walks and runs.");
+  if (input.inclinePct != null && (input.inclinePct < 0 || input.inclinePct > 15)) throw badInput("Incline must be 0 to 15%.");
 
   const [latest] = await listWeightHistory(input.userId, 1);
   const weightKg = latest?.weightKg ?? (await getIntake(input.userId))?.training.weightKg ?? 70;
@@ -128,8 +141,11 @@ export async function logActivity(input: LogActivityInput) {
   const row = await insertActivityLog({
     userId: input.userId, performedOn: input.performedOn, kind: type.kind, activityType: input.activityType,
     durationMinutes: input.durationMinutes, distanceKm: input.distanceKm ?? null,
-    kcal: estimated ? estimateActivityKcal(input.activityType, input.durationMinutes, weightKg, input.effort ?? "MODERATE") : input.kcal!,
+    kcal: estimated
+      ? estimateActivityKcal(input.activityType, input.durationMinutes, weightKg, input.effort ?? "MODERATE", treadmill ? { inclinePct: input.inclinePct, distanceKm: input.distanceKm } : null)
+      : input.kcal!,
     kcalEstimated: estimated, avgHeartRate: input.avgHeartRate ?? null, effort: input.effort ?? null,
+    setting: treadmill ? "TREADMILL" : "OUTDOOR", inclinePct: treadmill ? input.inclinePct ?? null : null,
   });
   eventBus.publish({ type: "ActivityLogged", userId: input.userId, activityLogId: row.id, kind: row.kind, durationMinutes: row.durationMinutes, kcal: row.kcal ?? 0 });
   return row;

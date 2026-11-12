@@ -140,7 +140,7 @@ export function PlanReveal({ c }: { c: StepCtx }) {
             Cycle 1 runs 6 weeks, then a short check-in builds cycle 2 from your results.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 22 }}>
-            <button className="cta pulse" type="button" onClick={next}>Save my plan and start<ArrowRight /></button>
+            <button className="cta glow" type="button" onClick={next}>Save my plan and start<ArrowRight /></button>
           </div>
         </div>
         <div className="fadein" style={{ "--d": ".15s" } as CSSProperties}>

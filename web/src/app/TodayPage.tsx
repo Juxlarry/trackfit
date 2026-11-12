@@ -1,7 +1,7 @@
-import { useMemo, type CSSProperties } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, type CSSProperties } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@apollo/client/react";
-import { ArrowRight, Check, Eye, Lightbulb, Play, Plus, CirclePlus } from "lucide-react";
+import { ArrowRight, Check, Eye, Lightbulb, Play, Plus, CirclePlus, Scale } from "lucide-react";
 import { ACTIVITY_TYPES, MEAL_SLOTS, addDaysIso, daysBetween, weekdayOf } from "@engine";
 import { ACTIVITY_LOGS, MEAL_DAY, SESSIONS_BETWEEN, WEIGHT_HISTORY } from "../graphql/operations";
 import type { ActivityDto, ActivePlanDto, MealDayDto, SessionSummaryDto } from "../graphql/types";
@@ -11,6 +11,7 @@ import { patOf } from "../figures/figureEngine";
 import { Ring } from "../components/ui/Ring";
 import { DAYS, DAYS_LONG, dayLabel, dayOfMonth, greeting, localToday } from "../lib/dates";
 import { usePushStatus } from "../lib/push";
+import { useActiveWorkout } from "../lib/activeWorkout";
 import { ViewHead } from "./AppLayout";
 import { ACT_ICON, useSheets } from "./AppSheets";
 import { CYCLE_DAYS, SLOT_LABEL, checkinIsOpen, checkinText, cycleWeek, firstSessionFrom, musclesFor, readFlags, sessionOn, sessionsByDate, weekDates } from "./planUtil";
@@ -26,11 +27,13 @@ export function ActivityRow({ a }: { a: ActivityDto }) {
   const Icon = ACT_ICON[a.activityType] ?? ACT_ICON.WALK;
   const parts = [`${a.durationMinutes} min`];
   if (a.distanceKm) parts.push(`${a.distanceKm} km`);
+  if (a.setting === "TREADMILL" && a.inclinePct) parts.push(`${a.inclinePct}% incline`);
+  const label = ACTIVITY_TYPES[a.activityType]?.label ?? a.activityType;
   if (a.avgHeartRate) parts.push(`${a.avgHeartRate} bpm avg`);
   return (
     <div className="li">
       <span className="ic"><Icon /></span>
-      <span><span className="t">{ACTIVITY_TYPES[a.activityType]?.label ?? a.activityType}</span><span className="d" style={{ display: "block" }}>{parts.join(", ")}</span></span>
+      <span><span className="t">{a.setting === "TREADMILL" ? `Treadmill ${a.activityType === "RUN" ? "run" : "walk"}` : label}</span><span className="d" style={{ display: "block" }}>{parts.join(", ")}</span></span>
       <span className="r">{a.kcal ? `${a.kcal.toLocaleString("en-GB")} kcal${a.kcalEstimated ? "*" : ""}` : ""}</span>
     </div>
   );
@@ -55,6 +58,15 @@ export function TodayPage() {
   const needsFuel = plan.pendingSections.includes("FUEL");
   const mealQ = useQuery<{ mealDay: MealDayDto }>(MEAL_DAY, { variables: { date: today }, skip: needsFuel });
   const wQ = useQuery<{ weightHistory: { recordedAt: string }[] }>(WEIGHT_HISTORY, { variables: { limit: 30 }, fetchPolicy: "cache-and-network" });
+  const { active } = useActiveWorkout();
+  // The daily weigh-in push opens Today with ?weigh=1 (README "Weigh-ins that are easy to find").
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    if (params.get("weigh") !== "1") return;
+    sheets.weighIn();
+    setParams((p) => { p.delete("weigh"); return p; }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
   const done = sessionsByDate(sessQ.data?.workoutSessionsBetween);
   const flags = readFlags(plan.programId);
   void sheets.flagsVersion;
@@ -64,6 +76,7 @@ export function TodayPage() {
   const doneToday = done.get(today);
   const before = today < plan.startDate;
   const openSession = (date: string) => { const ss = sessionOn(plan, date); if (ss) navigate(`/session/${ss.templateId ?? "x"}?date=${date}`); };
+  const resuming = !!active && !!s && active.date === today && active.templateId === (s.templateId ?? "x");
   const lightGhost = { borderColor: "color-mix(in srgb,var(--hero-fg) 28%,transparent)", color: "var(--hero-fg)" } as CSSProperties;
 
   let hero;
@@ -75,7 +88,7 @@ export function TodayPage() {
           <p className="k">Cycle {plan.cycleNumber} {today > plan.endDate ? "is done" : "ends " + dayLabel(plan.endDate)}</p>
           <h2>Check in to build cycle {plan.cycleNumber + 1}</h2>
           <p>See what six weeks did, answer three questions, and get a plan tuned to your results. Two minutes.</p>
-          <div className="row"><button type="button" className="cta small-cta pulse" onClick={() => navigate("/checkin")}>Start my check-in<ArrowRight /></button></div>
+          <div className="row"><button type="button" className="cta small-cta glow" onClick={() => navigate("/checkin")}>Start my check-in<ArrowRight /></button></div>
         </div>
         <Peek pattern="squat" />
       </section>
@@ -103,8 +116,8 @@ export function TodayPage() {
           <p>{s.warmup.length ? "5 min warm-up, then " : ""}{s.exercises.length} exercises. About {plan.profile.sessionMinutes} minutes.</p>
           <div className="mchips">{musclesFor(s.type).map((m) => <span key={m}>{m}</span>)}</div>
           <div className="row">
-            <button type="button" className="cta small-cta pulse" onClick={() => openSession(today)}>Start workout<Play /></button>
-            <button type="button" className="ghost" style={lightGhost} onClick={() => sheets.preview(s, today)}>Preview</button>
+            <button type="button" className="cta start-cta" onClick={() => openSession(today)}>{resuming ? "Resume workout" : "Start workout"}<Play /></button>
+            <button type="button" className="ghost start-ghost" style={lightGhost} onClick={() => sheets.preview(s, today)}>Preview</button>
           </div>
         </div>
         <Peek pattern={patOf(s.exercises[0]?.name ?? "")} />
@@ -142,6 +155,7 @@ export function TodayPage() {
   // A saved time only counts once this phone can get the notification (or can't ever, e.g. an old browser).
   const blocked = !!plan.profile.reminderTime && (push === "off" || push === "needs-install" || push === "denied");
   const weighed = (wQ.data?.weightHistory ?? []).some((w) => w.recordedAt.slice(0, 10) >= addDaysIso(plan.startDate, -7));
+  const weighedToday = (wQ.data?.weightHistory ?? []).some((w) => new Date(w.recordedAt).toLocaleDateString("en-CA") === today);
   const ess = [
     { on: weighed, t: "Log today's weigh-in", d: "Your real starting number", go: sheets.weighIn },
     {
@@ -170,6 +184,13 @@ export function TodayPage() {
       <div className="agrid">
         <div className="acol">
           {hero}
+          {wQ.data && !weighedToday && (
+            <button type="button" className="weigh-card fadein" onClick={sheets.weighIn}>
+              <span className="ic"><Scale /></span>
+              <span className="grow"><b>Log today's weigh-in</b><span>Before breakfast, after the bathroom. 10 seconds.</span></span>
+              <span className="go"><Plus /></span>
+            </button>
+          )}
           <TodayChallenges />
           <TodayRoutines />
           <section className="card fadein" style={{ "--d": ".08s" } as CSSProperties}>

@@ -305,11 +305,31 @@ export function suggestLoadKg(name: string, i: Pick<TrainingInput, "equipment" |
   return Math.max(db ? 2 : 5, Math.round(kg / step) * step);
 }
 
-export function estimateActivityKcal(type: string, minutes: number, weightKg: number, effort: Effort = "MODERATE"): number {
+export function estimateActivityKcal(
+  type: string, minutes: number, weightKg: number, effort: Effort = "MODERATE",
+  treadmill?: { inclinePct?: number | null; distanceKm?: number | null } | null,
+): number {
   const t = ACTIVITY_TYPES[type];
   if (!t || minutes <= 0) return 0;
   const mult = { EASY: 0.8, MODERATE: 1, HARD: 1.2 }[effort];
-  return Math.round((t.met * mult * weightKg * minutes) / 60);
+  const met = treadmill && (type === "WALK" || type === "RUN") ? treadmillMet(type, minutes, treadmill.inclinePct ?? 0, treadmill.distanceKm ?? null) : null;
+  return Math.round(((met ?? t.met * mult) * weightKg * minutes) / 60);
+}
+
+/**
+ * Treadmill walks and runs (README "Treadmill runs and walks"). With a distance,
+ * the ACSM treadmill equations from speed and incline; without one, the usual
+ * MET plus about 0.5 per 1% incline walking and 0.3 running. Null = use the usual MET.
+ */
+export function treadmillMet(type: "WALK" | "RUN", minutes: number, inclinePct: number, distanceKm: number | null): number | null {
+  const g = Math.max(0, Math.min(15, inclinePct)) / 100;
+  if (distanceKm && distanceKm > 0 && minutes > 0) {
+    const s = (distanceKm * 1000) / minutes; // metres per minute
+    const vo2 = type === "WALK" ? 3.5 + 0.1 * s + 1.8 * s * g : 3.5 + 0.2 * s + 0.9 * s * g;
+    return Math.round((vo2 / 3.5) * 10) / 10;
+  }
+  if (g === 0) return null;
+  return ACTIVITY_TYPES[type].met + inclinePct * (type === "WALK" ? 0.5 : 0.3);
 }
 
 // ── Weekly day swaps ──────────────────────────────────────────────────

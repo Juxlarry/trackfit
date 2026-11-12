@@ -29,10 +29,14 @@ export const notificationsResolvers = {
       await deletePushSubscription(requireUser(ctx).id, endpoint);
       return true;
     },
-    setReminderPrefs: async (_p: unknown, { input }: { input: Omit<ReminderPrefsRow, "clubChallenges"> & { clubChallenges?: boolean | null } }, ctx: GraphQLContext) => {
+    setReminderPrefs: async (_p: unknown, { input }: { input: Omit<ReminderPrefsRow, "clubChallenges" | "weighInTime"> & { clubChallenges?: boolean | null; weighInTime?: string | null } }, ctx: GraphQLContext) => {
       const userId = requireUser(ctx).id;
-      const clubChallenges = input.clubChallenges ?? (await getReminderPrefs(userId)).clubChallenges;
-      await setReminderPrefs(userId, { weighIn: input.weighIn, progressPhotos: input.progressPhotos, missedSession: input.missedSession, clubChallenges });
+      if (input.weighInTime != null && !/^([01]\d|2[0-3]):(00|15|30|45)$/.test(input.weighInTime)) throw badInput("Pick a weigh-in time in 15-minute steps, like 07:30.");
+      const current = await getReminderPrefs(userId);
+      await setReminderPrefs(userId, {
+        weighIn: input.weighIn, progressPhotos: input.progressPhotos, missedSession: input.missedSession,
+        clubChallenges: input.clubChallenges ?? current.clubChallenges, weighInTime: input.weighInTime ?? current.weighInTime,
+      });
       return getReminderPrefs(userId);
     },
     sendTestPush: async (_p: unknown, _a: unknown, ctx: GraphQLContext) =>

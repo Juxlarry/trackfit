@@ -14,6 +14,17 @@ export interface PlannedExerciseDto {
   startLoadKg: number | null;
   /** Swapped for the rest of the cycle: the planned exercise (README "Exercise swaps"). */
   swappedFrom: { exerciseId: string; name: string } | null;
+  /** What to offer next time (README "Exercise ease"); always asked first. Missing in previews. */
+  offer?: ProgressionOfferDto | null;
+}
+
+export interface ProgressionOfferDto {
+  kind: "WEIGHT_UP" | "REPS_UP" | "GOAL" | "LIGHTER";
+  weightKg: number | null;
+  reps: number;
+  steady: number;
+  fromWeightKg: number | null;
+  fromReps: number;
 }
 
 export type SwapFilter = "ANY" | "DUMBBELLS" | "BODYWEIGHT";
@@ -146,6 +157,9 @@ export interface ActivityDto {
   kcalEstimated: boolean;
   avgHeartRate: number | null;
   effort: string | null;
+  /** OUTDOOR or TREADMILL. */
+  setting: "OUTDOOR" | "TREADMILL";
+  inclinePct: number | null;
 }
 
 export interface SessionSummaryDto {

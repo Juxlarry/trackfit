@@ -21,7 +21,12 @@ import { PulseLoader } from "../components/ui/PulseLoader";
 
 const DIET_LABEL: Record<string, string> = { OMNIVORE: "Eats everything", HALAL: "Halal", PESCATARIAN: "Pescatarian", VEGETARIAN: "Vegetarian", VEGAN: "Vegan", OTHER: "Custom" };
 const fmt = (n: number) => n.toLocaleString("en-GB");
-const SLOT_ORDER: MealSlot[] = ["BREAKFAST", "LUNCH", "SNACK", "DINNER"];
+/** Fuel's sections, always in this order (README "Fuel: log first, suggestion below"). */
+const SLOT_ORDER: MealSlot[] = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
+const SECTION: Record<MealSlot, { title: string; log: string }> = {
+  BREAKFAST: { title: "Breakfast", log: "Log breakfast" }, LUNCH: { title: "Lunch", log: "Log lunch" },
+  DINNER: { title: "Dinner", log: "Log dinner" }, SNACK: { title: "Snacks", log: "Log a snack" },
+};
 
 function Bar({ label, v, max, color }: { label: string; v: number; max: number; color: string }) {
   const [w, setW] = useState(0);
@@ -51,6 +56,8 @@ function FuelDay() {
   const [params, setParams] = useSearchParams();
   const [forChallenge, setForChallenge] = useState<string | null>(() => params.get("log"));
   const [food, setFood] = useState<FoodLogDto | "new" | null>(() => (params.get("log") ? "new" : null));
+  const [logSlot, setLogSlot] = useState<MealSlot | null>(null);
+  const logFor = (s: MealSlot) => { setLogSlot(s); setFood("new"); };
   useEffect(() => { if (params.get("log")) setParams({}, { replace: true }); }, [params, setParams]);
   const challenges = useMyChallenges(date);
   const m = q.data?.mealDay;
@@ -88,54 +95,58 @@ function FuelDay() {
         <div className="acol">
           <section className="card fadein">
             <div className="card-h">
-              <div><h3>{isT ? "Today's menu" : `Menu for ${DAYS_LONG[day]}`}</h3><p>Built from your favourites, scaled to {fmt(t.kcal)} kcal</p></div>
-              {canLog && m && <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Log food</button>}
+              <div><h3>{isT ? "Today's meals" : `Meals for ${DAYS_LONG[day]}`}</h3><p>Log what you eat. Suggestions are built from your favourites, scaled to {fmt(t.kcal)} kcal</p></div>
             </div>
             {!m && (q.error ? <p className="help">{q.error.message}</p> : <PulseLoader small label="Loading your menu" />)}
-            {m?.items.map((it) => (
-              <div key={it.slotIndex} className={`meal-card${it.eaten ? " eaten" : ""}${it.skipped ? " skipped" : ""}`}>
-                <button type="button" className={`eat${it.eaten ? " on" : ""}`} aria-pressed={it.eaten} aria-label={`Mark ${it.name} as eaten`} onClick={() => void toggle(it)}><Check /></button>
-                <div>
-                  <div className="slot">{SLOT_LABEL[it.slot]}{it.skipped && <span className="tag">Replaced</span>}</div>
-                  <div className="nm">{it.name}</div>
-                  <div className="how">{it.portionGuide}{Math.abs(it.portionFactor - 1) > 0.08 ? ` Portions x${it.portionFactor.toFixed(1)}.` : ""}</div>
+            {m && SLOT_ORDER.map((slot) => {
+              const planned = m.items.filter((it) => it.slot === slot);
+              const logged = foods.filter((f) => f.slot === slot);
+              const topUp = slot === "SNACK" && m.proteinShortfallG > 15;
+              const kcal = planned.filter((it) => it.eaten).reduce((n, it) => n + it.kcal, 0) + logged.reduce((n, f) => n + f.kcal, 0);
+              return (
+                <div key={slot} className="meal-sec">
+                  <div className="meal-sec-h">
+                    <h4>{SECTION[slot].title}</h4>
+                    {kcal > 0 && <span className="kc">{fmt(kcal)} kcal</span>}
+                  </div>
+                  {canLog && <button type="button" className="log-slot" onClick={() => logFor(slot)}><Plus />{SECTION[slot].log}</button>}
+                  {logged.map((f) => (
+                    <button key={f.id} type="button" className="meal-card food-log" onClick={() => { setLogSlot(null); setFood(f); }} aria-label={`Edit ${f.name}`}>
+                      <span className="eat on" aria-hidden="true"><Check /></span>
+                      <span>
+                        <span className="slot">Logged{f.replacedSlotIndex != null && <span className="tag swap">Instead of the plan</span>}</span>
+                        <span className="nm">{f.name}</span>
+                        <span className="how">{f.portionLabel}{f.quantity !== 1 ? ` × ${f.quantity === 0.5 ? "½" : f.quantity % 1 === 0.5 ? `${Math.floor(f.quantity)}½` : f.quantity}` : ""}</span>
+                      </span>
+                      <span className="side"><span className="kc">{fmt(f.kcal)} kcal, {f.proteinG} g P</span><span className="linkbtn"><PenLine />Edit</span></span>
+                    </button>
+                  ))}
+                  {planned.map((it) => (
+                    <div key={it.slotIndex} className={`meal-card${it.eaten ? " eaten" : ""}${it.skipped ? " skipped" : ""}`}>
+                      <button type="button" className={`eat${it.eaten ? " on" : ""}`} aria-pressed={it.eaten} aria-label={`Mark ${it.name} as eaten`} onClick={() => void toggle(it)}><Check /></button>
+                      <div>
+                        <div className="slot">Suggested{it.skipped && <span className="tag">Replaced</span>}</div>
+                        <div className="nm">{it.name}</div>
+                        <div className="how">{it.portionGuide}{Math.abs(it.portionFactor - 1) > 0.08 ? ` Portions x${it.portionFactor.toFixed(1)}.` : ""}</div>
+                      </div>
+                      <div className="side">
+                        <span className="kc">{fmt(it.kcal)} kcal, {it.proteinG} g P</span>
+                        <button type="button" className="linkbtn" onClick={() => setSwapFor(it)}><Repeat />Swap</button>
+                      </div>
+                    </div>
+                  ))}
+                  {topUp && (
+                    <div className="meal-card">
+                      <span className="eat" style={{ borderStyle: "dashed" }}><Plus /></span>
+                      <div><div className="slot">Suggested: protein top-up</div><div className="nm">{plan.profile.dietPattern === "VEGAN" ? "Soy milk or a plant protein shake" : "Greek yogurt or a protein shake"}</div><div className="how">Closes the protein gap for the day.</div></div>
+                      <div className="side"><span className="kc">+{m.proteinShortfallG} g P</span></div>
+                    </div>
+                  )}
+                  {!planned.length && !topUp && <p className="meal-none">{logged.length ? "Nothing else suggested" : "Not on your plan today"}</p>}
                 </div>
-                <div className="side">
-                  <span className="kc">{fmt(it.kcal)} kcal, {it.proteinG} g P</span>
-                  <button type="button" className="linkbtn" onClick={() => setSwapFor(it)}><Repeat />Swap</button>
-                </div>
-              </div>
-            ))}
-            {m && m.proteinShortfallG > 15 && (
-              <div className="meal-card">
-                <span className="eat" style={{ borderStyle: "dashed" }}><Plus /></span>
-                <div><div className="slot">Protein top-up</div><div className="nm">{plan.profile.dietPattern === "VEGAN" ? "Soy milk or a plant protein shake" : "Greek yogurt or a protein shake"}</div><div className="how">Closes the protein gap for the day.</div></div>
-                <div className="side"><span className="kc">+{m.proteinShortfallG} g P</span></div>
-              </div>
-            )}
+              );
+            })}
           </section>
-          {m && canLog && (
-            <section className="card fadein" style={{ "--d": ".1s" } as CSSProperties}>
-              <div className="card-h">
-                <div><h3>Also eaten</h3><p>Anything off the menu: snacks, drinks, eating out</p></div>
-                {foods.length > 0 && <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Add</button>}
-              </div>
-              {foods.map((f) => (
-                <button key={f.id} type="button" className="meal-card food-log" onClick={() => setFood(f)} aria-label={`Edit ${f.name}`}>
-                  <span className="eat on" aria-hidden="true"><Check /></span>
-                  <span>
-                    <span className="slot">{SLOT_LABEL[f.slot]}{f.replacedSlotIndex != null && <span className="tag swap">Instead of the plan</span>}</span>
-                    <span className="nm">{f.name}</span>
-                    <span className="how">{f.portionLabel}{f.quantity !== 1 ? ` × ${f.quantity === 0.5 ? "½" : f.quantity % 1 === 0.5 ? `${Math.floor(f.quantity)}½` : f.quantity}` : ""}</span>
-                  </span>
-                  <span className="side"><span className="kc">{fmt(f.kcal)} kcal, {f.proteinG} g P</span><span className="linkbtn"><PenLine />Edit</span></span>
-                </button>
-              ))}
-              {!foods.length && (
-                <div className="empty"><Utensils /><span>Ate something that isn't on the menu? Log it so your totals stay honest. <button type="button" className="linkbtn" onClick={() => setFood("new")}><Plus />Log food</button></span></div>
-              )}
-            </section>
-          )}
         </div>
         <div className="acol">
           <section className="card fadein" style={{ "--d": ".06s" } as CSSProperties}>
@@ -166,8 +177,8 @@ function FuelDay() {
           </section>
         </div>
       </div>
-      <Sheet open={!!food} onClose={() => { setFood(null); setForChallenge(null); }} label={food === "new" ? "Log food" : "Edit food"}>
-        {food && m && <FoodSheet date={date} day={m} editing={food === "new" ? null : food} challengeId={forChallenge} onDone={() => { setFood(null); setForChallenge(null); }} />}
+      <Sheet open={!!food} onClose={() => { setFood(null); setForChallenge(null); setLogSlot(null); }} label={food === "new" ? "Log food" : "Edit food"}>
+        {food && m && <FoodSheet date={date} day={m} editing={food === "new" ? null : food} slot={logSlot} challengeId={forChallenge} onDone={() => { setFood(null); setForChallenge(null); setLogSlot(null); }} />}
       </Sheet>
       <Sheet open={!!swapFor} onClose={() => setSwapFor(null)} label="Swap a meal">
         {swapFor && <SwapSheet date={date} item={swapFor} kcal={t.kcal} onDone={() => setSwapFor(null)} />}

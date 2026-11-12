@@ -179,7 +179,7 @@ export const PLAN_FIELDS = gql`
       type
       name
       warmup { name dose }
-      exercises { exerciseId name pattern sets reps isCore swapped replaces suggestedLoadKg startLoadKg swappedFrom { exerciseId name } }
+      exercises { exerciseId name pattern sets reps isCore swapped replaces suggestedLoadKg startLoadKg swappedFrom { exerciseId name } offer { kind weightKg reps steady fromWeightKg fromReps } }
     }
     restDays { weekday suggestion }
     adaptations { icon text }
@@ -328,7 +328,7 @@ export const SET_WATER = gql`
 `;
 
 export const ACTIVITY_FIELDS = gql`
-  fragment ActivityFields on ActivityLog { id performedOn kind activityType durationMinutes distanceKm kcal kcalEstimated avgHeartRate effort }
+  fragment ActivityFields on ActivityLog { id performedOn kind activityType durationMinutes distanceKm kcal kcalEstimated avgHeartRate effort setting inclinePct }
 `;
 
 export const ACTIVITY_LOGS = gql`
@@ -398,11 +398,11 @@ export const SEND_TEST_PUSH = gql`
 `;
 
 export const REMINDER_PREFS = gql`
-  query ReminderPrefs { reminderPrefs { weighIn progressPhotos missedSession clubChallenges } }
+  query ReminderPrefs { reminderPrefs { weighIn weighInTime progressPhotos missedSession clubChallenges } }
 `;
 
 export const SET_REMINDER_PREFS = gql`
-  mutation SetReminderPrefs($input: ReminderPrefsInput!) { setReminderPrefs(input: $input) { weighIn progressPhotos missedSession clubChallenges } }
+  mutation SetReminderPrefs($input: ReminderPrefsInput!) { setReminderPrefs(input: $input) { weighIn weighInTime progressPhotos missedSession clubChallenges } }
 `;
 
 export const CYCLE_CHECKIN = gql`

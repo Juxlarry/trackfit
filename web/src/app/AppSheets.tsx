@@ -10,7 +10,7 @@ import {
 } from "@engine";
 import { useAuth } from "../auth/AuthContext";
 import {
-  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, REMINDER_PREFS, SEND_TEST_PUSH, SET_REMINDER, SET_REMINDER_PREFS, SET_START_DATE, SET_TRAINING_DAYS,
+  LOG_ACTIVITY, LOG_WEIGHT, MY_PLAN, WEIGHT_HISTORY, RESET_WEEK_SCHEDULE, SESSIONS_BETWEEN, REMINDER_PREFS, SEND_TEST_PUSH, SET_REMINDER, SET_REMINDER_PREFS, SET_START_DATE, SET_TRAINING_DAYS,
   SWAP_SESSION_DAYS, UPDATE_UNITS,
 } from "../graphql/operations";
 import type { PlannedSessionDto, SessionSummaryDto } from "../graphql/types";
@@ -89,7 +89,7 @@ export function AppSheets({ children }: { children: ReactNode }) {
       <Sheet open={open?.t === "reminder"} onClose={close} label="Reminders">{open?.t === "reminder" && <ReminderSheet onDone={close} />}</Sheet>
       <Sheet open={open?.t === "audit"} onClose={close} label="Meal audit">{open?.t === "audit" && <AuditSheet onDone={() => { bump(); close(); }} />}</Sheet>
       <Sheet open={open?.t === "profile"} onClose={close} label="Profile and settings">
-        {open?.t === "profile" && <ProfileSheet onReminder={() => swapTo({ t: "reminder" })} onDone={close} />}
+        {open?.t === "profile" && <ProfileSheet onReminder={() => swapTo({ t: "reminder" })} onWeigh={() => swapTo({ t: "weigh" })} onDone={close} />}
       </Sheet>
       <Sheet open={open?.t === "preview"} onClose={close} label="Session preview">
         {open?.t === "preview" && <PreviewSheet session={open.session} date={open.date} onGuide={guide.open} onDone={close} onSeen={bump} />}
@@ -155,6 +155,9 @@ function CardioSheet({ kind, date, preset, challengeId, onDone }: { kind: "CARDI
   const [kcal, setKcal] = useState("");
   const [hr, setHr] = useState("");
   const [effort, setEffort] = useState<Effort>("MODERATE");
+  // Walks and runs: outdoor or on a treadmill, with an optional incline (README "Treadmill runs and walks").
+  const [treadmill, setTreadmill] = useState(false);
+  const [incline, setIncline] = useState("");
   const [log, { loading }] = useMutation<{ logActivity: { id: string } }>(LOG_ACTIVITY, { refetchQueries: REFETCH_LOGS });
   const { me } = usePlan();
   const [saved, setSaved] = useState<{ id: string; text: string } | null>(null);
@@ -165,7 +168,10 @@ function CardioSheet({ kind, date, preset, challengeId, onDone }: { kind: "CARDI
   // Kept once saved: sending proof refetches the list, which then leaves this challenge out.
   const [savedFor, setSavedFor] = useState<typeof forChallenge>(null);
   const meta = ACTIVITY_TYPES[type];
-  const est = estimateActivityKcal(type, Number(minutes) || 0, weightKg, effort);
+  const canTread = type === "WALK" || type === "RUN";
+  const onTread = canTread && treadmill;
+  const inclinePct = onTread && incline !== "" && Number(incline) >= 0 ? Math.min(15, Number(incline)) : null;
+  const est = estimateActivityKcal(type, Number(minutes) || 0, weightKg, effort, onTread ? { inclinePct, distanceKm: Number(km) > 0 ? Number(km) : null } : null);
   const save = async () => {
     const m = Math.round(Number(minutes));
     if (!m || m < 1) { toast("Add how many minutes it took."); return; }
@@ -175,8 +181,9 @@ function CardioSheet({ kind, date, preset, challengeId, onDone }: { kind: "CARDI
         distanceKm: meta.distance && Number(km) > 0 ? Number(km) : null,
         kcal: Number(kcal) > 0 ? Math.round(Number(kcal)) : null,
         avgHeartRate: Number(hr) > 0 ? Math.round(Number(hr)) : null,
+        ...(onTread ? { setting: "TREADMILL", inclinePct } : {}),
       } } });
-      const text = `${meta.label} logged: ${m} min, ${(Number(kcal) || est).toLocaleString("en-GB")} kcal.`;
+      const text = `${onTread ? `Treadmill ${meta.label.toLowerCase()}` : meta.label} logged: ${m} min, ${(Number(kcal) || est).toLocaleString("en-GB")} kcal.`;
       const id = res.data?.logActivity.id;
       // Club members get the challenge proof or share prompt here; everyone else is done.
       if (id && me?.showClubs) { setSavedFor(forChallenge); setSaved({ id, text }); }
@@ -212,7 +219,18 @@ function CardioSheet({ kind, date, preset, challengeId, onDone }: { kind: "CARDI
       <div style={{ margin: "12px 0 18px" }}>
         <ChipGroup options={keys.map((k) => ({ value: k, label: ACTIVITY_TYPES[k].label, icon: ACT_ICON[k] }))} selected={[type]} onPick={(k) => { setType(k); if (forChallenge && forChallenge.activityType !== k) setForId(null); }} label="Activity" />
       </div>
+      {canTread && (
+        <div className="tread-row">
+          <span className="tl">Where</span>
+          <span className="seg">
+            {([false, true] as const).map((t) => (
+              <button key={String(t)} type="button" className={treadmill === t ? "on" : ""} aria-pressed={treadmill === t} onClick={() => setTreadmill(t)}>{t ? "Treadmill" : "Outdoor"}</button>
+            ))}
+          </span>
+        </div>
+      )}
       <div className="row2">
+        {onTread && <div className="field"><label htmlFor="c-inc">Incline (%) <span className="opt-l">Optional</span></label><input className="txt" id="c-inc" type="number" inputMode="decimal" min={0} max={15} step={0.5} placeholder="e.g. 2" value={incline} onChange={(e) => setIncline(e.target.value)} /></div>}
         <div className="field"><label htmlFor="c-min">Duration (minutes)</label><input className="txt" id="c-min" type="number" inputMode="numeric" min={1} max={600} value={minutes} onChange={(e) => setMinutes(e.target.value)} /></div>
         {meta.distance && <div className="field"><label htmlFor="c-km">Distance (km) <span className="opt-l">Optional</span></label><input className="txt" id="c-km" type="number" inputMode="decimal" min={0} step={0.1} placeholder="e.g. 5.2" value={km} onChange={(e) => setKm(e.target.value)} /></div>}
         <div className="field"><label htmlFor="c-kcal">Calories <span className="opt-l">From your watch, optional</span></label><input className="txt" id="c-kcal" type="number" inputMode="numeric" min={0} placeholder={`About ${est}`} value={kcal} onChange={(e) => setKcal(e.target.value)} /></div>
@@ -220,7 +238,7 @@ function CardioSheet({ kind, date, preset, challengeId, onDone }: { kind: "CARDI
       </div>
       <p style={{ fontWeight: 600, margin: "18px 0 8px" }}>How hard was it?</p>
       <ChipGroup options={[{ value: "EASY", label: "Easy" }, { value: "MODERATE", label: "Moderate" }, { value: "HARD", label: "Hard" }]} selected={[effort]} onPick={(v) => setEffort(v as Effort)} label="Effort" />
-      <div className="est"><Flame /><span>Estimated burn: <b>{est.toLocaleString("en-GB")} kcal</b>, from your weight, time and effort. Your watch's number wins if you add it.</span></div>
+      <div className="est"><Flame /><span>Estimated burn: <b>{est.toLocaleString("en-GB")} kcal</b>, from your weight, time and {onTread ? "incline" : "effort"}. Your watch's number wins if you add it.</span></div>
       <button type="button" className="cta" disabled={loading} onClick={() => void save()}>Save activity<Check /></button>
     </>
   );
@@ -232,13 +250,17 @@ function WeighInSheet({ onDone }: { onDone: () => void }) {
   const toast = useToast();
   const { plan } = usePlan();
   const units = useUnits();
-  const [kg, setKg] = useState(plan?.profile.startWeightKg ?? 75);
-  const [log, { loading }] = useMutation(LOG_WEIGHT, { refetchQueries: REFETCH_LOGS });
+  // Starts from the last weigh-in, so most mornings it's a nudge or two (README "Weigh-ins that are easy to find").
+  const lastQ = useQuery<{ weightHistory: { weightKg: number }[] }>(WEIGHT_HISTORY, { variables: { limit: 1 }, fetchPolicy: "cache-and-network" });
+  const lastKg = lastQ.data?.weightHistory[0]?.weightKg;
+  const [kg, setKg] = useState<number | null>(null);
+  const value = kg ?? lastKg ?? plan?.profile.startWeightKg ?? 75;
+  const [log, { loading }] = useMutation(LOG_WEIGHT, { refetchQueries: [...REFETCH_LOGS, { query: WEIGHT_HISTORY, variables: { limit: 1 } }, { query: WEIGHT_HISTORY, variables: { limit: 30 } }] });
   const step = units.unit === "kg" ? 0.1 : 0.5 / 2.20462;
   const save = async () => {
     try {
-      await log({ variables: { input: { weightKg: Math.round(kg * 10) / 10 } } });
-      toast(`Weigh-in saved: ${units.fmt(kg)}.`);
+      await log({ variables: { input: { weightKg: Math.round(value * 10) / 10 } } });
+      toast(`Weigh-in saved: ${units.fmt(value)}.`);
       onDone();
     } catch (e) { toast(e instanceof Error ? e.message : "Couldn't save that. Try again."); }
   };
@@ -248,10 +270,11 @@ function WeighInSheet({ onDone }: { onDone: () => void }) {
       <h3>Log your weigh-in</h3>
       <p>Morning, after the bathroom, before food. Daily numbers bounce around, so we use your 7-day average.</p>
       <div className="readout" style={{ margin: "10px 0 6px" }}>
-        <button className="stepbtn" type="button" aria-label="Decrease" onClick={() => setKg((v) => Math.max(30, v - step))}><Minus /></button>
-        <div className="big"><output className="mono">{units.unit === "kg" ? (Math.round(kg * 10) / 10).toFixed(1) : units.toDisplay(kg)}</output><span className="u">{units.unit}</span></div>
-        <button className="stepbtn" type="button" aria-label="Increase" onClick={() => setKg((v) => Math.min(300, v + step))}><Plus /></button>
+        <button className="stepbtn" type="button" aria-label="Decrease" onClick={() => setKg(Math.max(30, value - step))}><Minus /></button>
+        <div className="big"><output className="mono">{units.unit === "kg" ? (Math.round(value * 10) / 10).toFixed(1) : units.toDisplay(value)}</output><span className="u">{units.unit}</span></div>
+        <button className="stepbtn" type="button" aria-label="Increase" onClick={() => setKg(Math.min(300, value + step))}><Plus /></button>
       </div>
+      {lastKg != null && kg === null && <p className="help" style={{ textAlign: "center" }}>Starting from your last weigh-in. Tap − or + to match the scale.</p>}
       <button type="button" className="cta" disabled={loading} onClick={() => void save()}>Save weigh-in<Check /></button>
     </>
   );
@@ -267,10 +290,11 @@ const PUSH_NOTE: Partial<Record<PushStatus, string>> = {
 };
 
 type PrefKey = "weighIn" | "progressPhotos" | "missedSession" | "clubChallenges";
-type Prefs = Record<PrefKey, boolean>;
+type Prefs = Record<PrefKey, boolean> & { weighInTime: string };
+const WEIGH_TIMES = ["06:00", "06:30", "07:00", "07:30", "08:00", "09:00"];
 const PREF_OPTIONS: { value: PrefKey; label: string; desc: string; icon: LucideIcon }[] = [
-  { value: "weighIn", label: "Weekly weigh-in", desc: "7:30 am, once a week", icon: Scale },
-  { value: "progressPhotos", label: "Progress photos", desc: "7:30 am when your Week 3 and Week 6 slots open", icon: Camera },
+  { value: "weighIn", label: "Daily weigh-in", desc: "Every morning, skipped once you've weighed in", icon: Scale },
+  { value: "progressPhotos", label: "Progress photos", desc: "With your weigh-in when your Week 3 and Week 6 slots open", icon: Camera },
   { value: "missedSession", label: "Missed sessions", desc: "8 am the day after, a gentle nudge", icon: CalendarX },
   { value: "clubChallenges", label: "New club challenges", desc: "When a coach in your club sets one", icon: Trophy },
 ];
@@ -288,6 +312,8 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
   const [savePrefs] = useMutation(SET_REMINDER_PREFS, { refetchQueries: [{ query: REMINDER_PREFS }] });
   const [picked, setPicked] = useState<PrefKey[] | null>(null);
   const saved = prefsQ.data?.reminderPrefs;
+  const [weighTime, setWeighTime] = useState<string | null>(null);
+  const weighAt = weighTime ?? saved?.weighInTime ?? "07:30";
   const { me } = usePlan();
   const options = PREF_OPTIONS.filter((o) => o.value !== "clubChallenges" || me?.showClubs);
   const extras = picked ?? (saved ? options.map((o) => o.value).filter((k) => saved[k]) : []);
@@ -307,6 +333,12 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
       {before && <p className="help" style={{ marginTop: 14 }}>We'll also remind you at 7 pm the evening before your first session.</p>}
       <p className="sh-k" style={{ marginTop: 22 }}>Also remind me about</p>
       <OptionList multi label="Other reminders" options={options} selected={extras} onPick={(v) => setPicked(toggleIn(extras, v))} />
+      {extras.includes("weighIn") && (
+        <>
+          <p style={{ fontWeight: 600, margin: "16px 0 8px" }}>Weigh-in reminder time</p>
+          <ChipGroup options={[...new Set([...WEIGH_TIMES, weighAt])].sort().map((t) => ({ value: t, label: t }))} selected={[weighAt]} onPick={setWeighTime} label="Weigh-in reminder time" />
+        </>
+      )}
       {push && PUSH_NOTE[push] && <div className="note" role="note"><BellOff /><span>{PUSH_NOTE[push]}</span></div>}
       {push === "on" && (
         <div className="note" role="note">
@@ -325,7 +357,10 @@ function ReminderSheet({ onDone }: { onDone: () => void }) {
           const status = turnOn ? await enablePush(client) : push;
           if (status) setPush(status);
           await save({ variables: { time: time || null } });
-          if (picked) await savePrefs({ variables: { input: Object.fromEntries(options.map((o) => [o.value, picked.includes(o.value)])) } });
+          if (picked || weighTime) {
+            const on = picked ?? extras;
+            await savePrefs({ variables: { input: { ...Object.fromEntries(options.map((o) => [o.value, on.includes(o.value)])), ...(weighTime ? { weighInTime: weighTime } : {}) } } });
+          }
           if (!time && !extras.length) toast("Reminders are off.");
           else if (!time && status === "on") toast("Workout reminder is off. Your other reminders are on.");
           else if (status === "on") toast(`Reminders saved. Workouts at ${time} on training days.`);
@@ -470,7 +505,7 @@ function InstallRow() {
   );
 }
 
-function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: () => void }) {
+function ProfileSheet({ onReminder, onWeigh, onDone }: { onReminder: () => void; onWeigh: () => void; onDone: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
   const { signOut, firebaseUser } = useAuth();
@@ -487,6 +522,7 @@ function ProfileSheet({ onReminder, onDone }: { onReminder: () => void; onDone: 
       <h3>{me.displayName || "Your profile"}</h3>
       {me.email && <p>{me.email}</p>}
       <div className="list">
+        <div className="li"><span className="ic"><Scale /></span><span><span className="t">Weigh-in</span><span className="d" style={{ display: "block" }}>Every morning, before breakfast</span></span><button type="button" className="linkbtn" onClick={onWeigh}><Plus />Log weigh-in</button></div>
         <div className="li"><span className="ic"><CalendarDays /></span><span><span className="t">Plan start</span><span className="d" style={{ display: "block" }}>{dayLabel(plan.startDate)}</span></span><span /></div>
         <div className="li">
           <span className="ic"><Dumbbell /></span>

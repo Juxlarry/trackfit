@@ -100,6 +100,7 @@ export const trackingResolvers = {
           shareToClubs?: boolean;
           startedAt?: string | null;
           sets: { exerciseId: string; setNumber: number; reps: number; weightKg: number; rpe?: number; replacesExerciseId?: string | null }[];
+          ratings?: { exerciseId: string; ease: "EASY" | "OKAY" | "HARD" }[] | null;
         };
       },
       ctx: GraphQLContext,

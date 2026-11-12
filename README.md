@@ -25,7 +25,7 @@ Fitness tracker with a personalised onboarding quiz, a generated 6-week training
 - **Auth**: Firebase Authentication with Google and email/password. The backend verifies ID tokens.
 - **Week-6 check-in**: from day 40 of a cycle, `/checkin` shows what the cycle did (weight against planned pace, sessions done, best lift), asks three questions and builds the next cycle: calories recalculated and corrected ±150 kcal against the pace, day count, set changes, rotated accessories and starting weights from weeks 5-6. Rules: `backend/src/modules/planning/engine/checkin.ts`; history in `tracking.cycle_checkins`.
 - **Log any food** on Fuel: search about 140 foods, Ghanaian dishes first, with local names (`backend/src/modules/planning/engine/foods.ts`, searched on the device), pick a household portion or grams and the meal. Foods not in the list can be quick-added and are kept in "My foods". A food logged "instead of" a planned meal stops that meal counting. The daily totals combine ticked meals and logged foods, and the week-6 check-in pre-answers its eating question from them. Optional water tracking uses sachet and Voltic/Bel-Aqua bottle sizes, with a target of about 35 ml/kg (+500 ml on training days).
-- **Notifications**: reminders as Web Push (VAPID, `web-push`): training days, the evening before each cycle starts, weekly weigh-ins, Week 3/6 photo slots (skipped once that slot has a photo from this cycle; the app reports filled slots to `tracking.progress_photos`), missed sessions (those three switchable, `notifications.reminder_prefs`) and the week-6 check-in on days 40-42. Rules and times are at the top of `backend/src/modules/notifications/reminders.ts`. A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
+- **Notifications**: reminders as Web Push (VAPID, `web-push`): training days, the evening before each cycle starts, daily weigh-ins at a chosen time (skipped once logged), Week 3/6 photo slots (skipped once that slot has a photo from this cycle; the app reports filled slots to `tracking.progress_photos`), missed sessions (those three switchable, `notifications.reminder_prefs`) and the week-6 check-in on days 40-42. Rules and times are at the top of `backend/src/modules/notifications/reminders.ts`. A job checks every few minutes for reminders due in each user's time zone and logs each one so it is sent once. See "Reminders" under Deploying.
 - **Email**: a `Mailer` interface. `MAIL_PROVIDER=console` (the default) logs each email; `MAIL_PROVIDER=resend` sends through Resend (see "Clubs and email" under Deploying).
 - **Web**: Vite, React 19, Apollo Client 4 and react-router 7. Fonts are Bricolage Grotesque, Onest and JetBrains Mono. The theme is "Sunrise Lime" with light and dark modes.
 
@@ -432,6 +432,32 @@ Decided by the App Owner in November 2026:
    - the rest timer sits in the exercise card, with a bottom pill when you scroll away, and a vibration when rest ends;
    - the Start workout pill glows gently;
    - the treadmill switch defaults to Outdoor, with the incline estimate.
+
+### Polish as built
+
+- **Saved workouts:** `web/src/lib/activeWorkout.ts` keeps one workout per signed-in user in `localStorage`, with a memory copy for when storage is blocked.
+  - **Resume bar:** `ResumeBar` in `AppLayout` shows it on every tab.
+  - **Opening the app again** goes back into the workout, unless the link asked for something else. For example, the weigh-in push opens `/today?weigh=1` and shows the weigh-in sheet; the bar still shows.
+  - **"Still training?":** "Finish and save" opens the workout with `&finish=1`, which saves it.
+- **Progression:** `engine/progression.ts` (`progressionOffer`). The API adds `PlannedExercise.offer` from each exercise's last 8 logged sessions.
+  - **Unrated sessions** count towards the steady streak if every set was done. An offer is only made when the latest session was rated Easy or Okay.
+  - **Today-only swaps** get no offer.
+  - **Ratings** are saved in `tracking.exercise_ratings`, sent with `logWorkoutSession`.
+- **Weigh-in reminder:** daily on plan days 1 to 39 at `weigh_in_time`. Days 40-42 belong to the check-in push. The title is now "Morning weigh-in".
+  - The weigh-in sheet starts from your last weigh-in.
+  - The Today card shows whenever you haven't weighed in that day, including in week 1, next to the first-week checklist.
+- **Treadmill:** `activity_logs.setting` and `incline_pct`. `treadmillMet` uses the ACSM treadmill equations when there's a distance, and otherwise +0.5 MET (walking) or +0.3 MET (running) per 1% of incline.
+- **Start workout button:** the loader's class is now `pulse-load`. The hero buttons use `start-cta` and `glow`.
+- **Tab highlight:** measured again by a `ResizeObserver` and after `document.fonts.ready`. On phones, tabs share the width equally.
+- **Also fixed:** a type error in `integration.test.ts` (quick start test) that had broken `npm run typecheck`.
+- **Checked:**
+  - 84 unit tests and 46 integration tests.
+  - A headless Chromium run at 390 px wide, dark mode, covering:
+    - the tab highlight, within 1 px on every tab;
+    - the offer, the rest timer and its pill, and the ease chips;
+    - leaving a workout, reloading, and coming back with ticks and the clock intact;
+    - "Still training?" → Finish, with the rating saved;
+    - Fuel by meal, the weigh-in link and card, and a treadmill walk.
 
 ## Exercise swaps (spec)
 
