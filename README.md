@@ -215,6 +215,224 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 - **Web**: not deployed from GitHub. Build and run `firebase deploy` from `web/` (step 4 above).
 - **CI**: `.github/workflows/ci.yml` type-checks and tests both apps on every push and pull request.
 
+## App polish: workouts, weigh-ins, cardio and Fuel (spec)
+
+**Status: approved November 2026.** Built on `feature/app-polish`, branched from `feature/exercise-swaps` because both change the workout screen. The choices are listed under [Polish decisions](#polish-decisions).
+
+### Why
+
+Testing on a phone in November 2026 turned up eight issues:
+1. The rest timer hides at the top of the screen.
+2. Suggested weights never go up.
+3. Logging weight is hard to find.
+4. The tab highlight drifts away from its tab.
+5. The Start workout button is too big.
+6. Cardio has no treadmill option.
+7. Fuel lists the menu before the place to log what you actually ate.
+8. Leaving a started workout loses all of it.
+
+### 1. Rest timer under the exercise
+
+**Today:** the rest timer is a floating bar. During a workout it ends up near the top of the screen, over the set rows, and can't be seen once you scroll down.
+
+**Change:**
+- The timer appears **in the exercise card, straight under the set you just ticked**, with the ring, time left, **+15 s** and **Skip**. Your eyes are already there.
+- If you scroll that card out of view, a small pill (ring and time only) stays at the bottom of the screen. Tapping it scrolls back to the exercise.
+- When rest ends, the "Rest done. Next set." toast stays. The phone also vibrates briefly where the browser allows it.
+
+### 2. Exercise ease: Easy, Okay, Hard
+
+**Today:** a weight box suggests whatever you lifted last time. The hint "next week adjusts to it" overpromises, because nothing ever goes up.
+
+**Rating:**
+- After you tick the **last set of an exercise**, the card asks **"How did that feel?"** with three chips:
+  - **Easy:** you had reps to spare.
+  - **Okay:** hard but clean.
+  - **Hard:** a grind, or you missed reps.
+- It's optional. You can change your answer until you finish the workout. An unrated exercise counts as "hold" next time.
+- Ratings are saved with the workout, one per exercise.
+
+**Only after steady logging.** One good day isn't enough to go up. A session counts as **steady** for an exercise when:
+- it's at the **same weight** as the session before;
+- **every planned set** was done;
+- it **wasn't rated Hard**.
+
+A Hard rating, a missed set or a change of weight resets the count to zero. New exercises, swapped-in ones and a new cycle's first sessions start at zero. Until an offer applies, the boxes suggest last time's numbers.
+
+**What happens next time you do that exercise** ("reps then weight"):
+
+| Steady sessions in a row at this weight | Next time offers |
+|---|---|
+| 0 or 1 | Last time's numbers. Okay or Easy shows "aim for +1 rep" as a goal; nothing changes in the boxes. |
+| **2 or 3**, latest Easy or Okay | **+1 rep** per set, same weight, up to the top of the rep range |
+| **4**, latest Easy or Okay | **More weight** (next step, below), reps back to the bottom of the range. The count starts again at the new weight. |
+| Latest Hard | Hold |
+| Hard twice in a row | **A lighter weight**, about 10% less. This doesn't wait for a steady record. |
+
+For example, with 4 sets of 6-10 at 40 kg: sessions 1 and 2 at 8 reps are steady, so session 3 offers 9 reps. Session 4 offers 10 reps. After the 4th steady session, session 5 offers 42.5 kg at 6 reps.
+
+**Ask first, always.** Nothing is bumped without your OK.
+- **The offer:** a line at the top of the exercise card, such as "4 steady sessions at 40 kg. Go up to 42.5 kg?", with **Go up** and **Keep 40 kg**, or "2 steady sessions. Try 9 reps?", with **Try 9** and **Keep 8**.
+- **Accepting** fills that workout's weight or rep boxes. **Keeping**, or ignoring it, leaves last time's numbers.
+- **Repeating:** the offer comes back the next time it still applies.
+- **The plan isn't changed.** Only what the boxes suggest changes.
+
+**Weight steps:**
+- Barbell, machine and cable: +2.5 kg (+5 lb).
+- Dumbbells: +2 kg per hand (+5 lb), the usual jump between dumbbells.
+- Bodyweight and band exercises have no weight to add, so the rule counts sessions at the same reps instead. Two steady sessions offer +1 rep (+5 s for timed holds). Four steady sessions offer +2 reps (+10 s).
+
+**Also:**
+- Swapped-in exercises follow the same rules, from their own history.
+- The hint becomes "Rate each exercise when you finish it. Next time we'll suggest whether to go up."
+- The week-6 check-in doesn't use ratings yet. It still asks "How did the workouts feel?" for the whole cycle.
+
+### 3. Weigh-ins that are easy to find
+
+**Today:**
+- **Logging:** only from the Progress tab, or the first-week Today checklist.
+- **Reminders:** only on days 7, 14, 21, 28 and 35.
+- **Advice:** the card says to weigh in 3 to 4 times a week.
+
+**Change:**
+- **Daily reminder:**
+  - A push every morning at a time you choose. The default is 07:30, in 15-minute steps.
+  - **Skipped** if you've already weighed in that day.
+  - **On by default.** Switchable in the profile sheet with the other reminders.
+  - On days 14 and 35 it still mentions the progress photo, as now.
+- **On Today:** a compact **"Log today's weigh-in"** card near the top until you've logged one that day. One tap opens the weigh-in sheet, with yesterday's number filled in to adjust.
+- **Profile (J) menu:** a **Log weigh-in** entry, reachable from every tab.
+- **On Progress:** the Log weigh-in button stays where it is. The advice becomes "Every morning, before breakfast. The 7-day average smooths out the daily swings."
+
+### 4. Tab highlight that stays on its tab
+
+**Cause:** the highlight's size and position are measured when the route changes. The tab labels change width once the web fonts load, and again when Clubs is added, so the measurement goes stale. That's the offset highlight in the screenshots.
+
+**Fix:**
+- Measure again whenever the tab bar or any tab changes size, and once the fonts are ready.
+- On phones, give each tab an equal fixed share of the width, so labels can't push their neighbours.
+
+### 5. A normal-sized Start workout button
+
+**Cause:** the button has the class `pulse`, which the loading screen also uses. It picks up the loader's column layout and 56 px padding, so it renders as a tall blob.
+
+**Fix**:
+- Rename the classes so they can't collide again.
+- **Start workout** becomes a normal lime pill, 52 px tall, next to a **Preview** pill of the same height.
+- A soft glow pulses about once every 3 seconds, and is turned off for "reduce motion".
+- The exercise illustration on the card is unchanged.
+
+### 6. Treadmill runs and walks
+
+- Walking and Running get an **Outdoor / Treadmill** switch, defaulting to Outdoor.
+- Treadmill adds an optional **Incline (%)**, 0 to 15.
+- **Calorie estimate:**
+  - With a distance, it uses the standard treadmill formula from speed and incline.
+  - Without a distance, each 1% of incline adds about 0.5 MET when walking and 0.3 MET when running.
+  - Watch calories still win, as now.
+- **Display:**
+  - History and Progress show "Treadmill run, 2% incline".
+  - Club share drafts say "Ran 5 km on the treadmill".
+  - Pace is shown as for outdoor runs.
+- **Challenges:** a treadmill run still counts as a run, and a treadmill walk as a walk.
+
+### 7. Fuel: log first, suggestion below
+
+**Today:**
+- One "Today's menu" list of planned meals, with one **Log food** link.
+- Logged foods appear in a separate list underneath.
+
+**Change:** the day is grouped by meal, always in this order: **Breakfast, Lunch, Dinner, Snacks**. Each section has, top to bottom:
+1. **Header:** the meal name and its kcal so far.
+2. **Log breakfast** (or lunch, dinner, a snack). This opens the food sheet with that meal already chosen.
+3. **Foods you've logged** for that meal.
+4. **Suggested:** the planned meal, with its tick and Swap as now.
+   - If you logged something "instead of the plan", the suggestion shows as Replaced.
+   - With no planned meal that day: "Not on your plan today".
+
+**Also:**
+- The protein top-up goes under Snacks.
+- Future days show the suggestions only, as now. Logging opens on the day itself.
+
+### 8. A started workout is never lost
+
+**Today:** a workout lives only in the workout screen's memory. Leaving the screen loses everything: the start time, ticked sets, weights and reps typed, warm-up ticks and today-only swaps. That happens when you go to another tab, tap back, or the phone closes the browser in the background while you use another app. Coming back starts the workout from the top. The rest timer also counts in one-second ticks, which pause while the app is in the background.
+
+**Change:** once you tap **Start workout**, the workout is kept until you **Finish** or **Discard** it.
+- **Saved as you go:** every tick, number typed, swap and warm-up tick is saved on the phone straight away. Nothing is lost if the app is closed, the phone locks or the browser reloads.
+- **The clock keeps time:** the elapsed time and the rest timer count from saved start and end times, not ticks. Coming back after 4 minutes in another app shows the right time, and a rest that ended meanwhile shows as done.
+- **Leaving is safe:** the ✕ and the tabs leave the workout running in the background. The "Leave this workout?" sheet becomes **Keep it running** (the default), **Finish and save what I did** and **Discard this workout**.
+- **Getting back:**
+  - A **"Push in progress, 12:40"** bar sits above the tab bar on every tab. Tap it to return exactly where you were, scrolled to the next unticked set.
+  - Today's workout card shows **Resume workout** instead of Start.
+  - Opening the app again goes straight back into the workout.
+- **One at a time:** starting a different session while one is running asks you to finish or discard the first.
+- **Forgotten workouts:** after 4 hours without a tick, the bar becomes "Still training?", with **Finish and save** and **Discard**. A workout is never thrown away without asking.
+- **Same phone only.** It's saved on the device, like the onboarding answers. Carrying on from a different device isn't part of this change.
+
+### Technical outline
+
+- **Engine (pure, unit-tested):**
+  - `progressionOffer(history, exercise, units)` takes the exercise's recent rated sessions, counts steady sessions at the current weight and returns `{ kind: "WEIGHT_UP" | "REPS_UP" | "GOAL" | "LIGHTER" | "HOLD", weightKg?, reps?, reason }`. Rep ranges come from the plan, such as "6-10".
+  - The treadmill MET rule goes in `catalog.ts`.
+- **Database (`sql/016_app_polish.sql`):**
+  - `tracking.exercise_ratings (session_id, exercise_id, ease)`, with `ease` one of `EASY`, `OKAY` or `HARD`, and a primary key on `(session_id, exercise_id)`.
+  - `tracking.activity_logs` gains `setting` (`OUTDOOR` or `TREADMILL`, default `OUTDOOR`) and `incline_pct`.
+  - `notifications.reminder_prefs` gains `weigh_in_time` (default `07:30`).
+- **API:**
+  - `LogWorkoutSessionInput.ratings: [{ exerciseId, ease }]`. Each exercise must have a logged set in that session.
+  - `PlannedExercise.offer`: the progression offer for the next session.
+  - `LogActivityInput` gains `setting` and `inclinePct`.
+  - Reminder prefs gain `weighInTime`.
+  - `WEIGH_IN` reminders become daily at that time.
+- **Web:**
+  - **Active workout store** (`lib/activeWorkout.ts`):
+    - Saved in `localStorage` per signed-in user. It holds the template, date, `startedAt`, `restEndsAt`, rows, warm-up ticks, today-only swaps and ratings.
+    - Every read and write is wrapped so private browsing still works for the session itself.
+    - Cleared on Finish or Discard.
+  - **Resume:** `AppLayout` shows the resume bar, and Today and Train show **Resume workout**.
+  - `SessionPage`: loads from the store, the rest timer in the card, the bottom pill, ease chips and the offer line.
+  - `AppLayout`: the tab highlight is re-measured with a `ResizeObserver` and after fonts load.
+  - `TodayPage`: the start button and the weigh-in card.
+  - The profile menu gets Log weigh-in and the reminder time.
+  - The cardio sheet gets the treadmill switch.
+  - `FuelPage`: sections by meal.
+- **Tests:**
+  - Engine: every row of the progression table, weight steps per equipment and unit, and treadmill calories.
+  - API: ratings saved and checked, the daily weigh-in reminder and its skip, and treadmill activities.
+  - Steady rule: +1 rep after 2 and 3 steady sessions, more weight after 4. A Hard, a missed set or a weight change resets the count.
+  - Active workout: it survives leaving, a reload, and a rest that ends while away.
+  - Browser: one run at phone width covering each item above, including leaving a workout for another tab and coming back.
+
+### Build order
+
+Each step is a separate commit:
+1. A started workout is never lost. First, as it's the biggest bug.
+2. Fixes: tab highlight, Start workout button, rest timer placement.
+3. Fuel by meal.
+4. Treadmill.
+5. Weigh-ins: daily reminder, Today card, profile entry.
+6. Exercise ease and progression offers.
+
+### Polish decisions
+
+Decided by the App Owner in November 2026:
+
+1. **Progression:** reps then weight, as in the table above, always asked before any change. Steady sessions in a row at one weight: 2 or 3 offer +1 rep, and 4 offer the next weight step. The weight steps are approved.
+2. **Weigh-in reminder:** daily at a chosen time, skipped once you've logged that day. Plus a Today card and a profile-menu entry.
+3. **Treadmill:** an Outdoor / Treadmill switch with an optional incline, not separate activity types.
+4. **Fuel:** Breakfast, Lunch, Dinner and Snacks always appear with a log button. A meal without a planned suggestion says so.
+5. **Steady sessions:** sessions rated Easy or Okay both count. Only Hard, a missed set or a change of weight resets the count. Bodyweight and band moves count sessions at the same reps.
+6. **Started workouts:**
+   - kept on the phone until you Finish or Discard;
+   - opening the app goes back into a running one;
+   - after 4 hours with no ticks, the app asks "Still training?";
+   - other devices aren't covered.
+7. **The other defaults:**
+   - the rest timer sits in the exercise card, with a bottom pill when you scroll away, and a vibration when rest ends;
+   - the Start workout pill glows gently;
+   - the treadmill switch defaults to Outdoor, with the incline estimate.
+
 ## Exercise swaps (spec)
 
 **Status: approved and built November 2026** on `feature/exercise-swaps` (see [Swaps as built](#swaps-as-built)). The choices are listed under [Swap decisions](#swap-decisions).
