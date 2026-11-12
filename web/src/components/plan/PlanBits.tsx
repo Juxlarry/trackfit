@@ -28,13 +28,19 @@ export function AdaptationList({ items }: { items: { icon: string; text: string 
   );
 }
 
-interface ExerciseLike { name: string; pattern: string | null; sets: number; reps: string; swapped: boolean; replaces: string | null }
+interface ExerciseLike {
+  name: string; pattern: string | null; sets: number; reps: string; swapped: boolean; replaces: string | null;
+  exerciseId?: string | null; swappedFrom?: { exerciseId: string; name: string } | null;
+}
 
 /** Warm-up block + exercise rows with animated form thumbnails. */
-export function ExerciseList({ warmup, exercises, onGuide }: {
+export function ExerciseList({ warmup, exercises, onGuide, onSwap, onReset }: {
   warmup: { name: string; dose: string }[];
   exercises: ExerciseLike[];
   onGuide: (name: string, pattern: string | null) => void;
+  /** Saved plans only: swap an exercise for the rest of the cycle (README "Exercise swaps"). */
+  onSwap?: (e: ExerciseLike) => void;
+  onReset?: (e: ExerciseLike) => void;
 }) {
   return (
     <>
@@ -50,7 +56,16 @@ export function ExerciseList({ warmup, exercises, onGuide }: {
           <div className="ex" key={e.name}>
             <span className="exn">
               <ExerciseThumb pattern={pat} name={e.name} onOpen={() => onGuide(e.name, pat)} />
-              <span>{e.name}{e.swapped && <span className="tag swap" title={e.replaces ? `Replaces ${e.replaces}` : undefined}>swap</span>}</span>
+              <span>
+                {e.name}{e.swapped && <span className="tag swap" title={e.replaces ? `Replaces ${e.replaces}` : undefined}>swap</span>}
+                {e.swappedFrom && <span className="tag">Swapped</span>}
+                {(onSwap || (onReset && e.swappedFrom)) && e.exerciseId && (
+                  <span className="ex-swap">
+                    {e.swappedFrom && onReset && <button type="button" className="linkbtn" onClick={() => onReset(e)}>Back to {e.swappedFrom.name}</button>}
+                    {onSwap && <button type="button" className="linkbtn" onClick={() => onSwap(e)}>Swap</button>}
+                  </span>
+                )}
+              </span>
             </span>
             <span>{e.sets} x {e.reps}</span>
           </div>

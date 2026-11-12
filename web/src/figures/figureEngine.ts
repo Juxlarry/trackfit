@@ -428,6 +428,12 @@ const FIG_BY_NAME: Record<string, string> = {
   "Dead bug": "deadbug", "Plank": "plank", "Forearm plank": "plank", "Plank shoulder tap": "shouldertap", "Hollow hold": "hollow",
   "Bird dog": "birddog", "Reverse crunch": "revcrunch", "Cable crunch": "cablecrunch", "Hanging knee raise": "kneeraise",
   "Pallof press": "pallof", "Side bend": "sidebend",
+  // Exercise swap additions (README "Exercise swaps", "Library additions").
+  "Seated DB calf raise": "calf", "Tempo calf raise": "calf", "DB fly": "fly", "Band fly": "fly", "Band pullover": "pullover",
+  "Floor DB pullover": "pullover", "Band lateral raise": "raisefront", "Leaning DB lateral raise": "raisefront", "Prone Y-T raise": "reardelt",
+  "Prone W raise": "reardelt", "Reverse snow angel": "superman", "Prone back extension": "superman", "DB overhead triceps extension": "ohext",
+  "Frog pump": "bridge", "Slider leg curl": "legcurl", "Elevated pike push-up": "pike", "Band shoulder press": "press",
+  "Band hammer curl": "curl", "Towel curl": "curl", "Doorway row": "invrow", "Bodyweight good morning": "rdl",
 };
 
 /** Figure key for an exercise name, or null when there is no faithful illustration. */

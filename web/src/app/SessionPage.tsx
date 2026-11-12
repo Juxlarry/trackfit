@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowRight, Check, Flame, Info, Plus, Sparkles, Trash2, Trophy, X } from "lucide-react";
+import { ArrowRight, Check, Flame, Info, Plus, Repeat, Sparkles, Trash2, Trophy, X } from "lucide-react";
 import { LAST_SETS, LOG_PLANNED_SESSION } from "../graphql/operations";
 import type { PlannedExerciseDto } from "../graphql/types";
 import { usePlan, useUnits } from "../hooks/usePlan";
@@ -15,12 +15,16 @@ import { REFETCH_LOGS, sessionOn } from "./planUtil";
 import { ShareCard } from "./clubs/ShareCard";
 import { ChallengeWorkoutSheet } from "./clubs/Challenges";
 import { useMyChallenges } from "./clubs/challengeHooks";
-import type { ClubChallengeDto } from "../graphql/types";
+import type { ClubChallengeDto, ExerciseSwapOptionDto } from "../graphql/types";
+import { patternOf } from "@engine";
+import { SwapPicker } from "./ExerciseSwap";
+import { useResetSwap } from "./swapHooks";
 import { challengeRule } from "../lib/clubFormat";
 
 interface Row { kg: string; reps: string; done: boolean }
 interface Hist { id: string; startedAt: string; sets: { setNumber: number; reps: number; weightKg: number; exercise: { id: string } }[] }
 
+const without = <T,>(m: Record<number, T>, k: number) => Object.fromEntries(Object.entries(m).filter(([key]) => Number(key) !== k)) as Record<number, T>;
 const COMPOUND = new Set(["squat", "rdl", "bench", "row", "pulldown", "press", "thrust", "lunge"]);
 const midRep = (reps: string) => { const n = reps.match(/\d+/g); return n ? (n.length > 1 ? Math.round((+n[0] + +n[1]) / 2) : +n[0]) : 10; };
 
@@ -49,6 +53,10 @@ export function SessionPage() {
   // Workout challenges you've taken on: an extra block after the planned exercises.
   const challenges = useMyChallenges(date).filter((m) => m.challenge.kind === "WORKOUT" && !m.doneForPeriod && !m.completed);
   const [challenge, setChallenge] = useState<ClubChallengeDto | null>(null);
+  // Exercise swaps (README "Exercise swaps"): one-off ones live here until the workout is logged.
+  const [oneOff, setOneOff] = useState<Record<number, ExerciseSwapOptionDto & { replaces: { exerciseId: string; name: string } }>>({});
+  const [swapAt, setSwapAt] = useState<number | null>(null);
+  const resetSwap = useResetSwap();
 
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, []);
   useEffect(() => {
@@ -70,6 +78,12 @@ export function SessionPage() {
 
   if (!session) return <Navigate to="/train" replace />;
 
+  /** The session as it'll be done today: planned exercises, with today-only swaps in their place. */
+  const exs: PlannedExerciseDto[] = session.exercises.map((e, ei) => {
+    const o = oneOff[ei];
+    return o ? { ...e, exerciseId: o.exerciseId, name: o.name, pattern: patternOf(o.name), suggestedLoadKg: o.suggestedLoadKg, startLoadKg: null, swapped: false, replaces: null, swappedFrom: null } : e;
+  });
+
   const all = rows.flat().length;
   const doneN = rows.flat().filter((r) => r.done).length;
   const suggested = (e: PlannedExerciseDto) => (e.suggestedLoadKg != null ? units.toDisplay(e.suggestedLoadKg) : null);
@@ -84,7 +98,7 @@ export function SessionPage() {
 
   const update = (ei: number, si: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, i) => (i !== ei ? r : r.map((x, j) => (j !== si ? x : { ...x, ...patch })))));
   const toggleSet = (ei: number, si: number) => {
-    const e = session.exercises[ei];
+    const e = exs[ei];
     const r = rows[ei][si];
     if (r.done) { update(ei, si, { done: false }); return; }
     const kgPh = placeholderKg(e, si);
@@ -97,9 +111,10 @@ export function SessionPage() {
 
   const finish = async () => {
     if (!doneN) { toast("Mark at least one set as done before finishing."); return; }
-    const sets = session.exercises.flatMap((e, ei) => e.exerciseId ? rows[ei].map((r, si) => ({ r, si })).filter(({ r }) => r.done).map(({ r, si }) => ({
+    const sets = exs.flatMap((e, ei) => e.exerciseId ? rows[ei].map((r, si) => ({ r, si })).filter(({ r }) => r.done).map(({ r, si }) => ({
       exerciseId: e.exerciseId!, setNumber: si + 1, reps: Math.max(1, Math.round(Number(r.reps) || 1)),
       weightKg: r.kg ? Math.round(units.fromDisplay(Number(r.kg)) * 100) / 100 : 0,
+      ...(oneOff[ei] ? { replacesExerciseId: oneOff[ei].replaces.exerciseId } : {}),
     })) : []);
     const dur = Math.round((Date.now() - t0) / 1000);
     try {
@@ -139,15 +154,30 @@ export function SessionPage() {
             </div>
           </section>
         )}
-        {session.exercises.map((e, ei) => {
+        {exs.map((e, ei) => {
           const timed = /s$/.test(e.reps);
+          // Swaps are offered until the first set of the exercise is ticked.
+          const untouched = rows[ei].every((r) => !r.done);
+          const swapOk = !!e.exerciseId && !!session.templateId && untouched;
           const hasLoad = e.suggestedLoadKg != null || rows[ei].some((r) => r.kg);
           return (
             <section className="excard" key={e.name}>
               <div className="excard-h">
                 <ExerciseThumb pattern={patOf(e.name)} name={e.name} onOpen={() => sheets.guide(e.name, e.pattern)} />
-                <div><div className="t">{e.name}{e.swapped && <span className="tag swap">swap</span>}</div><div className="d">{e.sets} sets of {e.reps}{e.swapped && e.replaces ? `, replaces ${e.replaces.toLowerCase()}` : ""}</div></div>
-                <button type="button" className="linkbtn" onClick={() => sheets.guide(e.name, e.pattern)}><Info />How</button>
+                <div>
+                  <div className="t">{e.name}{e.swapped && <span className="tag swap">swap</span>}{oneOff[ei] && <span className="tag">Today only</span>}{e.swappedFrom && <span className="tag">Swapped</span>}</div>
+                  <div className="d">{e.sets} sets of {e.reps}{e.swapped && e.replaces ? `, replaces ${e.replaces.toLowerCase()}` : ""}</div>
+                  {untouched && (oneOff[ei] || e.swappedFrom) && (
+                    <button type="button" className="linkbtn back-to" onClick={() => {
+                      if (oneOff[ei]) setOneOff((m) => without(m, ei));
+                      else void resetSwap.reset(session.templateId!, e.exerciseId!, e.swappedFrom!.name);
+                    }}>Back to {(oneOff[ei]?.replaces ?? e.swappedFrom)!.name}</button>
+                  )}
+                </div>
+                <span className="ex-acts">
+                  {swapOk && <button type="button" className="linkbtn" onClick={() => setSwapAt(ei)}><Repeat />Swap</button>}
+                  <button type="button" className="linkbtn" onClick={() => sheets.guide(e.name, e.pattern)}><Info />How</button>
+                </span>
               </div>
               <table className="sets">
                 <thead><tr><th>Set</th><th>Last time</th><th>{hasLoad ? units.unit : "Load"}</th><th>{timed ? "Secs" : "Reps"}</th><th><span className="sr-only">Done</span></th></tr></thead>
@@ -193,6 +223,18 @@ export function SessionPage() {
           <button type="button" onClick={() => setRest(null)}>Skip</button>
         </div>
       )}
+      <Sheet open={swapAt !== null} onClose={() => setSwapAt(null)} label="Swap an exercise">
+        {swapAt !== null && session.templateId && (() => {
+          // A today-only swap is swapped again from the planned exercise, so options and the record stay about the plan.
+          const planned = session.exercises[swapAt];
+          return (
+            <SwapPicker templateId={session.templateId} exercise={{ exerciseId: planned.exerciseId!, name: planned.name }}
+              onOneOff={(o) => setOneOff((m) => ({ ...m, [swapAt]: { ...o, replaces: { exerciseId: planned.exerciseId!, name: planned.name } } }))}
+              onCycle={() => setOneOff((m) => without(m, swapAt))}
+              onDone={() => setSwapAt(null)} />
+          );
+        })()}
+      </Sheet>
       <Sheet open={!!challenge} onClose={() => setChallenge(null)} label="Club challenge">
         {challenge && <ChallengeWorkoutSheet challenge={challenge} date={date} onDone={() => setChallenge(null)} />}
       </Sheet>

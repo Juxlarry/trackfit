@@ -1276,3 +1276,76 @@ test("quick start: answers given anyway, and answers from before, are never owed
   assert.ok(f2);
   assert.deepEqual((await ok(`{ myPlan { onboardingPath pendingSections } }`, {}, quickUser)).myPlan, { onboardingPath: "FULL", pendingSections: [] });
 });
+
+// ── Exercise swaps ──────────────────────────────────────────────────────
+
+const SWAP_PLAN = `{ myPlan { dayRange{min max} daysPerWeek sessions { templateId name exercises { exerciseId name swappedFrom { exerciseId name } } } } }`;
+const SWAP_OPTS = `query($t:ID!,$e:ID!,$o:SwapFilter){ exerciseSwapOptions(templateId:$t, exerciseId:$e, only:$o){ filters options{ exerciseId name equipment sameMovement reason suggestedLoadKg } } }`;
+const SWAP = `mutation($t:ID!,$e:ID!,$to:ID!){ swapPlanExercise(templateId:$t, exerciseId:$e, toExerciseId:$to){ sessions { templateId exercises { exerciseId name swappedFrom { name } } } } }`;
+const RESET = `mutation($t:ID!,$e:ID!){ resetPlanExercise(templateId:$t, exerciseId:$e){ sessions { templateId exercises { name swappedFrom { name } } } } }`;
+let swapper = "";
+
+test("exercise swaps: options keep to the member's equipment, injuries and session", async () => {
+  swapper = await newUser("Nana");
+  await ok(ONBOARD, { i: { screening: screeningClear, training, diet, startDate: today } }, swapper);
+  const plan = (await ok(SWAP_PLAN, {}, swapper)).myPlan;
+  const s = plan.sessions[0];
+  const ex = s.exercises[0];
+  const r = (await ok(SWAP_OPTS, { t: s.templateId, e: ex.exerciseId }, swapper)).exerciseSwapOptions;
+  assert.deepEqual(r.filters, ["ANY", "DUMBBELLS", "BODYWEIGHT"]);
+  assert.ok(r.options.length > 0 && r.options.length <= 6);
+  const inSession = new Set(s.exercises.map((e: any) => e.name));
+  assert.ok(r.options.every((o: any) => !inSession.has(o.name) && o.reason.length > 0));
+  const bw = (await ok(SWAP_OPTS, { t: s.templateId, e: ex.exerciseId, o: "BODYWEIGHT" }, swapper)).exerciseSwapOptions.options;
+  assert.ok(bw.every((o: any) => o.equipment === "Bodyweight"));
+  // Knee injury: anything the generator swaps away for knees is never offered.
+  const squatLike = plan.sessions.flatMap((x: any) => x.exercises.map((e: any) => ({ t: x.templateId, e }))).find((x: any) => /squat|leg press|lunge/i.test(x.e.name));
+  if (squatLike) {
+    const o = (await ok(SWAP_OPTS, { t: squatLike.t, e: squatLike.e.exerciseId }, swapper)).exerciseSwapOptions.options.map((x: any) => x.name);
+    assert.ok(!o.includes("Back squat") && !o.includes("Walking lunge"), JSON.stringify(o));
+  }
+  assert.equal((await gql(SWAP_OPTS, { t: s.templateId, e: ex.exerciseId }, outsider)).errors?.[0].extensions.code, "NOT_FOUND");
+});
+
+test("exercise swaps: for the rest of the cycle, with Back to …, and only allowed options", async () => {
+  const s = (await ok(SWAP_PLAN, {}, swapper)).myPlan.sessions[0];
+  const ex = s.exercises[0];
+  const opts = (await ok(SWAP_OPTS, { t: s.templateId, e: ex.exerciseId }, swapper)).exerciseSwapOptions.options;
+  const other = s.exercises.find((e: any) => e.exerciseId !== ex.exerciseId && !opts.some((o: any) => o.exerciseId === e.exerciseId));
+  assert.match((await gql(SWAP, { t: s.templateId, e: ex.exerciseId, to: other.exerciseId }, swapper)).errors?.[0].message, /isn't a swap option/);
+
+  let after = (await ok(SWAP, { t: s.templateId, e: ex.exerciseId, to: opts[0].exerciseId }, swapper)).swapPlanExercise.sessions[0].exercises[0];
+  assert.deepEqual([after.name, after.swappedFrom?.name], [opts[0].name, ex.name]);
+  // Swapping again still remembers the planned exercise.
+  const again = (await ok(SWAP_OPTS, { t: s.templateId, e: opts[0].exerciseId }, swapper)).exerciseSwapOptions.options.find((o: any) => o.name !== ex.name);
+  after = (await ok(SWAP, { t: s.templateId, e: opts[0].exerciseId, to: again.exerciseId }, swapper)).swapPlanExercise.sessions[0].exercises[0];
+  assert.equal(after.swappedFrom?.name, ex.name);
+  const back = (await ok(RESET, { t: s.templateId, e: again.exerciseId }, swapper)).resetPlanExercise.sessions[0].exercises[0];
+  assert.deepEqual([back.name, back.swappedFrom], [ex.name, null]);
+  assert.match((await gql(RESET, { t: s.templateId, e: ex.exerciseId }, swapper)).errors?.[0].message, /isn't swapped/);
+
+  // Changing training days rebuilds the week, which resets swaps.
+  await ok(SWAP, { t: s.templateId, e: ex.exerciseId, to: opts[0].exerciseId }, swapper);
+  const plan = (await ok(SWAP_PLAN, {}, swapper)).myPlan;
+  const n = plan.daysPerWeek > plan.dayRange.min ? plan.daysPerWeek - 1 : plan.daysPerWeek + 1;
+  await ok(`mutation($d:Int!){ setTrainingDays(days:$d){ daysPerWeek } }`, { d: n }, swapper);
+  const rebuilt = (await ok(SWAP_PLAN, {}, swapper)).myPlan;
+  assert.ok(rebuilt.sessions.every((x: any) => x.exercises.every((e: any) => e.swappedFrom === null)));
+});
+
+test("exercise swaps: a one-off swap is logged with what it replaced, and checked", async () => {
+  const s = (await ok(SWAP_PLAN, {}, swapper)).myPlan.sessions[0];
+  const ex = s.exercises[0];
+  const opt = (await ok(SWAP_OPTS, { t: s.templateId, e: ex.exerciseId }, swapper)).exerciseSwapOptions.options[0];
+  const LOG = `mutation($i:LogWorkoutSessionInput!){ logWorkoutSession(input:$i){ id } }`;
+  const set = (exerciseId: string, replacesExerciseId: string | null) => ({ exerciseId, setNumber: 1, reps: 8, weightKg: 20, replacesExerciseId });
+  const curlish = (await ok(`{ exercises { id name } }`)).exercises.find((e: any) => /curl/i.test(e.name) && !/leg/i.test(e.name));
+  assert.match((await gql(LOG, { i: { sets: [set(opt.exerciseId, ex.exerciseId)] } }, swapper)).errors?.[0].message, /needs the planned workout/);
+  assert.match((await gql(LOG, { i: { templateId: s.templateId, sets: [set(curlish.id, ex.exerciseId)] } }, swapper)).errors?.[0].message, /doesn't fit/);
+  assert.match((await gql(LOG, { i: { templateId: s.templateId, sets: [set(opt.exerciseId, curlish.id)] } }, swapper)).errors?.[0].message, /doesn't fit/);
+  const id = (await ok(LOG, { i: { templateId: s.templateId, durationMinutes: 40, sets: [set(opt.exerciseId, ex.exerciseId), set(s.exercises[1].exerciseId, null)] } }, swapper)).logWorkoutSession.id;
+  const rows = (await pool.query(`SELECT exercise_id, replaces_exercise_id FROM tracking.set_logs WHERE session_id = $1 ORDER BY replaces_exercise_id NULLS LAST`, [id])).rows;
+  assert.deepEqual(rows[0], { exercise_id: opt.exerciseId, replaces_exercise_id: ex.exerciseId });
+  // The plan itself is unchanged.
+  assert.equal((await ok(SWAP_PLAN, {}, swapper)).myPlan.sessions[0].exercises[0].name, ex.name);
+});

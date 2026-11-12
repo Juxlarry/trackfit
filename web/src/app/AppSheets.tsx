@@ -23,6 +23,8 @@ import { DAYS_LONG, dayLabel, dayShort, localToday } from "../lib/dates";
 import { useInstall } from "../lib/pwa";
 import { disablePushHere, enablePush, pushStatus, type PushStatus } from "../lib/push";
 import { ShareCard } from "./clubs/ShareCard";
+import { SwapPicker } from "./ExerciseSwap";
+import { useResetSwap } from "./swapHooks";
 import { ChallengeProof } from "./clubs/ChallengeProof";
 import { useMyChallenges } from "./clubs/challengeHooks";
 import { challengeRule } from "../lib/clubFormat";
@@ -419,6 +421,10 @@ function PreviewSheet({ session, date, onGuide, onDone, onSeen }: {
   const { plan } = usePlan();
   const today = localToday();
   const [setStart] = useMutation(SET_START_DATE, { refetchQueries: [{ query: MY_PLAN }], awaitRefetchQueries: true });
+  const [swapFor, setSwapFor] = useState<{ exerciseId: string; name: string } | null>(null);
+  const resetSwap = useResetSwap();
+  // The plan refreshes after a swap; show this session from it.
+  const live = plan?.sessions.find((s) => s.templateId && s.templateId === session.templateId) ?? session;
   if (plan && !readFlags(plan.programId).previewed) { writeFlags(plan.programId, { previewed: true }); queueMicrotask(onSeen); }
   const start = async () => {
     if (plan && today < plan.startDate) {
@@ -428,12 +434,19 @@ function PreviewSheet({ session, date, onGuide, onDone, onSeen }: {
     onDone();
     navigate(`/session/${session.templateId ?? "x"}?date=${today}`);
   };
+  if (swapFor && session.templateId) {
+    return <SwapPicker templateId={session.templateId} exercise={swapFor} onDone={() => setSwapFor(null)} onBack={() => setSwapFor(null)} />;
+  }
   return (
     <>
       <p className="sh-k">{dayLabel(date)}</p>
       <h3>{session.name}</h3>
       <p>{session.warmup.length ? "5 min warm-up, then " : ""}{session.exercises.length} exercises. About {plan?.profile.sessionMinutes ?? 45} minutes. Tap a picture to see how it's done.</p>
-      <div className="exlist" style={{ display: "block" }}><ExerciseList warmup={session.warmup} exercises={session.exercises} onGuide={onGuide} /></div>
+      <div className="exlist" style={{ display: "block" }}>
+        <ExerciseList warmup={live.warmup} exercises={live.exercises} onGuide={onGuide}
+          onSwap={session.templateId ? (e) => setSwapFor({ exerciseId: e.exerciseId!, name: e.name }) : undefined}
+          onReset={session.templateId ? (e) => void resetSwap.reset(session.templateId!, e.exerciseId!, e.swappedFrom!.name) : undefined} />
+      </div>
       <button type="button" className="cta" onClick={() => void start()}>{date === today ? "Start workout" : "Start it today instead"}<Play /></button>
     </>
   );

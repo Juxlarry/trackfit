@@ -1,6 +1,6 @@
 import { eventBus } from "../../shared/events/bus.js";
 import { assertIsoDate, badInput } from "../../shared/errors.js";
-import { ACTIVITY_TYPES, estimateActivityKcal, type Effort } from "../planning/engine/index.js";
+import { ACTIVITY_TYPES, estimateActivityKcal, familyOf, type Effort } from "../planning/engine/index.js";
 import { getIntake } from "../planning/planning.repository.js";
 import {
   findExercisesByIds,
@@ -18,6 +18,7 @@ import {
   insertWeightEntry,
   listWeightHistory,
   templateBelongsToUser,
+  templateExerciseIds,
   listWorkoutHistory,
   logWorkoutSessionWithMilestones,
   type LogWorkoutSessionInput,
@@ -43,6 +44,19 @@ export async function logWeight(params: {
 export async function logWorkoutSession(input: LogWorkoutSessionInput) {
   if (input.templateId && !(await templateBelongsToUser(input.templateId, input.userId))) {
     throw badInput("That workout isn't one of yours.");
+  }
+  const swaps = input.sets.filter((s) => s.replacesExerciseId);
+  if (swaps.length) {
+    // A one-off swap replaces an exercise in this workout's plan, with one from the same family.
+    if (!input.templateId) throw badInput("A swapped exercise needs the planned workout it belongs to.");
+    const planned = await templateExerciseIds(input.templateId);
+    const names = new Map((await findExercisesByIds([...new Set(swaps.flatMap((s) => [s.exerciseId, s.replacesExerciseId!]))])).map((e) => [e.id, e.name]));
+    for (const s of swaps) {
+      const from = names.get(s.replacesExerciseId!), to = names.get(s.exerciseId);
+      if (!planned.has(s.replacesExerciseId!) || !from || !to || familyOf(from) === null || familyOf(from) !== familyOf(to)) {
+        throw badInput("That swap doesn't fit this workout. Pick one of the suggested exercises.");
+      }
+    }
   }
   if (input.startedAt && Number.isNaN(input.startedAt.getTime())) throw badInput("startedAt must be an ISO date-time.");
   if (input.startedAt && input.startedAt.getTime() > Date.now() + 36 * 3600_000) throw badInput("You can't log a workout in the future.");
@@ -141,7 +155,8 @@ export interface WorkoutDetail {
   durationMinutes: number | null;
   setCount: number;
   volumeKg: number;
-  exercises: { name: string; sets: { reps: number; weightKg: number }[] }[];
+  /** swappedFor: a one-off swap, the planned exercise it replaced. */
+  exercises: { name: string; swappedFor: string | null; sets: { reps: number; weightKg: number }[] }[];
   prs: WorkoutPr[];
 }
 
@@ -161,7 +176,7 @@ async function workoutDetail(s: WorkoutSessionRow): Promise<WorkoutDetail> {
   const exercises: WorkoutDetail["exercises"] = [];
   for (const set of sets) {
     let ex = exercises.find((e) => e.name === set.exerciseName);
-    if (!ex) exercises.push((ex = { name: set.exerciseName, sets: [] }));
+    if (!ex) exercises.push((ex = { name: set.exerciseName, swappedFor: set.replacesName, sets: [] }));
     ex.sets.push({ reps: set.reps, weightKg: set.weightKg });
   }
   const prs = milestones.map((m): WorkoutPr => {

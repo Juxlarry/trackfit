@@ -215,6 +215,137 @@ The repo lives at [github.com/Juxlarry/trackfit](https://github.com/Juxlarry/tra
 - **Web**: not deployed from GitHub. Build and run `firebase deploy` from `web/` (step 4 above).
 - **CI**: `.github/workflows/ci.yml` type-checks and tests both apps on every push and pull request.
 
+## Exercise swaps (spec)
+
+**Status: approved and built November 2026** on `feature/exercise-swaps` (see [Swaps as built](#swaps-as-built)). The choices are listed under [Swap decisions](#swap-decisions).
+
+### Why
+
+The bench is taken, the cable machine is broken, or a move just doesn't feel right. Today the only way round it is to skip the exercise. Members should be able to swap it for another that trains the same thing with equipment they have, without changing the shape of their plan.
+
+### What a swap keeps
+
+A swap changes the exercise and nothing else:
+
+- **The same target:** the replacement trains the same muscle in the same way. Each exercise in the catalogue gets a **family**, finer than today's muscle groups:
+  - quads, hamstrings, glutes and calves (today's "legs" is too broad: a leg curl must not become a leg extension);
+  - chest press and chest fly;
+  - horizontal pull (rows) and vertical pull (pulldowns, pull-ups);
+  - shoulder press, side delts and rear delts;
+  - biceps, triceps and core.
+- **The same role:**
+  - A main lift is swapped for a main lift, such as a squat for a leg press or a bench press for a dumbbell press.
+  - Accessory work is swapped for accessory work.
+  - Core is swapped for core.
+  
+  The session stays as hard as planned.
+- **The same prescription:** sets, reps, rest and the exercise's place in the session stay as planned. The suggested weight is worked out again for the new exercise.
+- **Equipment the member has:** only what their onboarding answer covers. They can also narrow it for the day, with "Any I have" (the default), "Dumbbells" or "Bodyweight", for a busy gym or training away. A choice only shows if their equipment covers it.
+
+  | Where they train | Equipment offered |
+  |---|---|
+  | Full gym | Barbell, machine, cable, dumbbell, band, bodyweight |
+  | Small gym | Barbell, cable, dumbbell, band, bodyweight. Machines only if the plan already uses that machine |
+  | Home gym | Barbell, dumbbell, band, bodyweight |
+  | Dumbbells only | Dumbbell, bodyweight |
+  | Resistance bands | Band, bodyweight |
+  | Bodyweight only | Bodyweight |
+
+- **Safe for their injuries and lift comfort:** anything the plan generator swaps away for an injury the member reported is never offered. "I avoid squats, bench and deadlifts" keeps barbell versions of those out too.
+- **Within the session:** an exercise already in the session isn't offered again.
+- **From TrackFit's library only:** every option has form cues and an illustration. Custom exercises aren't offered.
+
+**Order of options:**
+1. Same movement first. Bench press offers dumbbell bench press and machine chest press before push-ups.
+2. Then the rest of the family.
+3. At most 6 options. Each shows its equipment and form illustration, and a one-line reason such as "Same muscle, dumbbells instead of barbell".
+
+**When there's nothing to offer:** the sheet says so ("No other chest fly option with dumbbells") and suggests skipping the sets today. Logging always allows that.
+
+### How long a swap lasts
+
+Each time, the member chooses one of these. Neither is preselected:
+- **This workout only.**
+  - Only today's logged sets use the new exercise. Next time the plan shows the original again.
+  - Nothing is saved to the plan.
+  - The logged workout records which exercise it replaced, so history and coaches see "DB bench press, swapped for Bench press".
+- **For the rest of this cycle:**
+  - The plan itself changes from this session on: Train, the session preview, reminders and the check-in all show the new exercise, tagged "Swapped" with **Back to Bench press** to undo it.
+  - **Next cycle:** the week-6 check-in builds it fresh from the generator's rules as usual. The check-in preview lists the member's swaps, so they can make them again if they want.
+
+**Changing training days or fine-tuning:** either rebuilds the week, which resets the cycle swaps. The confirmation says so first.
+
+### Where it appears
+
+- **In a workout:** a **Swap** button on each exercise card in the session, next to How.
+  - Swapping replaces the card. It's available until the first set of that exercise is ticked. After that, untick the sets to swap.
+- **In the session preview** (Today and Train): **Swap**, for the rest of the cycle only. One-off swaps belong in the workout.
+- **Not in club routines or challenges.** Their exercises are set by Admins and coaches.
+
+### Progress and history
+
+- **Each exercise keeps its own history:** "Last time", PRs and strength trends are per exercise. A swapped-in exercise starts its own record, and the original's isn't touched.
+- **Suggested weight:** for a new exercise it comes from the same estimate the plan uses. After it's been logged once, it comes from the member's own history.
+- **Week-6 check-in:** the carry-over weights for cycle 2 come from what was actually logged. A main lift swapped for the whole cycle has no weeks 5 and 6 to carry, so cycle 2 estimates it as for a new member.
+
+### Library additions
+
+Checked against today's library of 86 exercises:
+- **Full gym:** every exercise has 2 or more options except the cable fly, which has 1.
+- **Dumbbells, bands or bodyweight:** several have 0 or 1, including calf raises, the dumbbell floor fly, the pullover, the Superman hold, the band chest press and the band pull-apart.
+
+So this step adds 21 exercises to close the gaps, such as a seated DB calf raise, DB fly, band fly, prone Y-T raise, reverse snow angel and band straight-arm pulldown. Each gets a family, a movement pattern for its illustration, and form cues.
+
+**Found while checking:** bodyweight-only members are given band exercises today, because bands and bodyweight share one exercise pool. Swaps follow the equipment table above, so a bodyweight-only member gets bodyweight options for those. Fixing the plan generator itself is a separate change, not part of this step.
+
+### Technical outline
+
+- **Engine (shared by the API and the web app):**
+  - `family` on every catalogue exercise.
+  - `swapOptions(exercise, { equipment, injuries, liftComfort, sessionExercises, only })` returns ranked options. It's pure and unit-tested.
+- **Database (`sql/015_exercise_swaps.sql`):**
+  - `tracking.workout_template_exercises` gains `swapped_from_exercise_id` (the original, for Back to …).
+  - `tracking.set_logs` gains `replaces_exercise_id` for one-off swaps, so history can say what was swapped.
+- **API:**
+  - **`exerciseSwapOptions(templateId, exerciseId, only)`.**
+  - **`swapPlanExercise(templateId, exerciseId, toExerciseId)` and `resetPlanExercise(templateId, exerciseId)`** for cycle swaps. They check the choice against `swapOptions`, so a swap the app wouldn't offer is refused.
+  - **`logWorkoutSession` sets can carry `replacesExerciseId`.** The API checks it's an allowed swap for that template's exercise.
+- **Web:**
+  - A swap sheet in `SessionPage` and the session preview, with the two length choices and the equipment filter.
+  - "Swapped" tags with **Back to …** on Train.
+- **Tests:**
+  - **Option rules:** same family and role, equipment, injury and lift-comfort exclusions, no duplicates in a session, ranking.
+  - **Saving:** cycle swap and undo, and that refused swaps are refused.
+  - **Logging and resets:** one-off swaps are logged with their record, and changing days resets swaps.
+  - **Browser run:** at phone width.
+
+### Swap decisions
+
+Decided by the App Owner in November 2026:
+
+1. **Length:** asked every time, with no default: "This workout only" or "For the rest of this cycle".
+2. **Next cycle:** cycle swaps end at the week-6 check-in, which lists them so they can be redone.
+3. **Mid-exercise:** swapping is only possible before the first set of that exercise is ticked.
+4. **Bodyweight-only members:** swap options offer bodyweight moves only. Fixing the generator's band exercises is a separate change.
+5. **Equipment filter:** offered for the day, with "Any I have" (the default), "Dumbbells" and "Bodyweight".
+
+### Swaps as built
+
+- **Engine:** `engine/swaps.ts` holds the families, the 21 added exercises (`SWAP_EXTRAS`), the equipment table and `exerciseSwapOptions`. Every added exercise reuses an existing illustration and its form cues (`web/src/figures/figureEngine.ts`).
+  - **Equipment labels:** they were guessed from the exercise name, and about a dozen came out wrong (for example "Calf raise" read as a machine). Swaps use a correction table. Pull-ups and hanging knee raises count as gym equipment, since both need a bar.
+  - **Case:** lookups ignore it, because the original exercise library spells some names differently ("Lat Pulldown").
+  - **Coverage:** with a full or small gym, every planned exercise has at least 2 options. With dumbbells, bands or bodyweight, a few have 1. A unit test checks that every planned exercise has at least one.
+- **API:** `sql/015_exercise_swaps.sql`.
+  - `exerciseSwapOptions` lists the options. `swapPlanExercise` and `resetPlanExercise` save and undo cycle swaps, and refuse anything the options wouldn't offer.
+  - `PlannedExercise.swappedFrom` names the planned exercise for **Back to …**.
+- **Checking one-off swaps:** a logged set's `replacesExerciseId` must be in that workout's plan, and the new exercise must be in the same family. Equipment and injuries aren't checked again at logging; the app only offers options that already passed those checks.
+- **Showing what was replaced:** workout details show "swapped for …", for the member and their club's coaches.
+- **Web:** the swap sheet is `app/ExerciseSwap.tsx`.
+  - **Train and the session preview:** **Swap** for the rest of the cycle, and **Back to …**. The preview swaps without leaving the preview.
+  - **The workout:** both lengths are offered, until the exercise's first set is ticked.
+  - **Check-in:** the preview lists the cycle's swaps, which end there.
+
+
 ## Quick start onboarding (spec)
 
 **Status: approved and built November 2026** on `feature/quick-onboarding` (see [As built](#as-built)). The choices that were signed off are listed under [Approved decisions](#approved-decisions).

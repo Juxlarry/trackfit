@@ -63,7 +63,7 @@ export function WorkoutTable({ w }: { w: ClubWorkoutDto }) {
     <div className="wtable">
       {w.exercises.map((e) => (
         <div key={e.name} className="wrow">
-          <b>{e.name}</b>
+          <b>{e.name}{e.swappedFor && <small className="wswap">swapped for {e.swappedFor}</small>}</b>
           <span>{e.sets.map((s, i) => <span key={i} className="wset">{s.weightKg > 0 ? `${units.toDisplay(s.weightKg)} ${units.unit}` : "BW"} × {s.reps}</span>)}</span>
         </div>
       ))}

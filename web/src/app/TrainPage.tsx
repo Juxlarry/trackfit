@@ -13,6 +13,9 @@ import { DAYS, dayOfMonth, localToday } from "../lib/dates";
 import { ViewHead } from "./AppLayout";
 import { ACT_TILES, useSheets } from "./AppSheets";
 import { FineTuneCard } from "./IntakeSection";
+import { SwapPicker } from "./ExerciseSwap";
+import { useResetSwap } from "./swapHooks";
+import { Sheet } from "../components/ui/Sheet";
 import { cycleWeek, isMoved, sessionOn, sessionsByDate, weekDates } from "./planUtil";
 
 const PROG: [string, string][] = [
@@ -33,6 +36,9 @@ export function TrainPage() {
   const done = sessionsByDate(sessQ.data?.workoutSessionsBetween);
   const [setDays, { loading }] = useMutation(SET_TRAINING_DAYS, { refetchQueries: [{ query: MY_PLAN }], awaitRefetchQueries: true });
   const cw = cycleWeek(plan, today);
+  const [swapFor, setSwapFor] = useState<{ templateId: string; exerciseId: string; name: string } | null>(null);
+  const resetSwap = useResetSwap();
+  const cycleSwaps = plan.sessions.reduce((n, s) => n + s.exercises.filter((e) => e.swappedFrom).length, 0);
 
   const change = async (n: number) => {
     try {
@@ -59,6 +65,7 @@ export function TrainPage() {
               <DaysControl value={plan.daysPerWeek} min={plan.dayRange.min} max={plan.dayRange.max} onChange={(n) => void change(n)} busy={loading} />
             </div>
             <RangeNote value={plan.daysPerWeek} min={plan.dayRange.min} max={plan.dayRange.max} base={plan.onboardingDays} />
+            {cycleSwaps > 0 && <p className="help">Changing days rebuilds your week, which resets your {cycleSwaps} exercise swap{cycleSwaps > 1 ? "s" : ""}.</p>}
             <div className="sched">
               {week.map((date, k) => {
                 const s = sessionOn(plan, date);
@@ -95,7 +102,11 @@ export function TrainPage() {
                       <button className="open" type="button" aria-label={`Show exercises for ${s.name}`} aria-expanded={x}
                         onClick={() => setOpen((o) => { const n = new Set(o); if (n.has(date)) n.delete(date); else n.add(date); return n; })}><ChevronDown /></button>
                     </span>
-                    <div className="exlist">{x && <ExerciseList warmup={s.warmup} exercises={s.exercises} onGuide={sheets.guide} />}</div>
+                    <div className="exlist">{x && (
+                      <ExerciseList warmup={s.warmup} exercises={s.exercises} onGuide={sheets.guide}
+                        onSwap={s.templateId ? (e) => setSwapFor({ templateId: s.templateId!, exerciseId: e.exerciseId!, name: e.name }) : undefined}
+                        onReset={s.templateId ? (e) => void resetSwap.reset(s.templateId!, e.exerciseId!, e.swappedFrom!.name) : undefined} />
+                    )}</div>
                   </div>
                 );
               })}
@@ -135,6 +146,9 @@ export function TrainPage() {
           </section>
         </div>
       </div>
+      <Sheet open={!!swapFor} onClose={() => setSwapFor(null)} label="Swap an exercise">
+        {swapFor && <SwapPicker templateId={swapFor.templateId} exercise={swapFor} onDone={() => setSwapFor(null)} />}
+      </Sheet>
     </div>
   );
 }
