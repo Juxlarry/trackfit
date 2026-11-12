@@ -26,7 +26,7 @@ export function PulseLoader({ label = "Loading", full, small, slowHint = full }:
     return () => window.clearTimeout(t);
   }, [slowHint]);
   return (
-    <div className={`pulse${full ? " full" : ""}${small ? " sm" : ""}`} role="status" aria-live="polite">
+    <div className={`pulse-load${full ? " full" : ""}${small ? " sm" : ""}`} role="status" aria-live="polite">
       <span className="pulse-mark" aria-hidden="true"><Activity /></span>
       <span className="sr-only">{label}</span>
       {slow && <span className="pulse-note">Waking up TrackFit. The first load after a quiet spell can take up to a minute.</span>}

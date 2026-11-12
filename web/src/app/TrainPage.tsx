@@ -16,6 +16,7 @@ import { FineTuneCard } from "./IntakeSection";
 import { SwapPicker } from "./ExerciseSwap";
 import { useResetSwap } from "./swapHooks";
 import { Sheet } from "../components/ui/Sheet";
+import { useActiveWorkout } from "../lib/activeWorkout";
 import { cycleWeek, isMoved, sessionOn, sessionsByDate, weekDates } from "./planUtil";
 
 const PROG: [string, string][] = [
@@ -25,6 +26,7 @@ const PROG: [string, string][] = [
 ];
 
 export function TrainPage() {
+  const { active } = useActiveWorkout();
   const plan = usePlan().plan!;
   const sheets = useSheets();
   const toast = useToast();
@@ -88,7 +90,7 @@ export function TrainPage() {
                 if (dn) act = <span className="donec"><Check />Done</span>;
                 else if (date < plan.startDate) act = <span className="meta" style={{ fontSize: 12.5, color: "var(--ink-3)" }}>Before start</span>;
                 else if (date < today) act = <button type="button" className="linkbtn" onClick={go}>Log it</button>;
-                else if (isT) act = <button type="button" className="startb" onClick={go}>Start</button>;
+                else if (isT) act = <button type="button" className="startb" onClick={go}>{active && active.date === date && active.templateId === (s.templateId ?? "x") ? "Resume" : "Start"}</button>;
                 else act = <button type="button" className="linkbtn" onClick={() => sheets.preview(s, date)}>Preview</button>;
                 return (
                   <div key={date} className={`srow${isT ? " today-row" : ""}${x ? " x" : ""}`}>

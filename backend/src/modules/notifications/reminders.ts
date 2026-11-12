@@ -11,11 +11,13 @@ import { pushPublicKey, sendPushToUser, type PushMessage } from "./push.js";
  *    unless they've already logged a workout that day.
  *  - PLAN_START_EVE at 19:00 the evening before the first session of each
  *    cycle (the first plan, and each cycle a check-in starts).
- *  - WEIGH_IN at 07:30 on days 7, 14, 21, 28 and 35 of the plan, unless they
- *    weighed in during the last 3 days. On days 14 and 35 it also says the
- *    Week 3 / Week 6 photo slot is open, so that morning is one notification.
- *  - PROGRESS_PHOTO at 07:30 on days 14 and 35, only when the weigh-in
- *    reminder is off or not needed. Either one skips the photo when that
+ *  - WEIGH_IN every morning at the user's weigh-in time (default 07:30), on
+ *    plan days 1 to 39, unless they've already weighed in that day (README
+ *    "Weigh-ins that are easy to find"). Days 40-42 belong to the check-in.
+ *    On days 14 and 35 it also says the Week 3 / Week 6 photo slot is open,
+ *    so that morning is one notification.
+ *  - PROGRESS_PHOTO on days 14 and 35 (at the weigh-in time, or 07:30 with
+ *    weigh-ins off), only when the weigh-in reminder is off or not needed. Either one skips the photo when that
  *    slot already holds a photo from this cycle (tracking.progress_photos).
  *  - MISSED_SESSION at 08:00 the day after a planned session with no workout
  *    logged.
@@ -32,7 +34,8 @@ export const WINDOW_MIN = 90;
 const EVE_MINUTES = 19 * 60;
 const MORNING_MINUTES = 7 * 60 + 30;
 const MISSED_MINUTES = 8 * 60;
-const WEIGH_IN_DAYS = [7, 14, 21, 28, 35];
+const WEIGH_IN_FIRST_DAY = 1;
+const WEIGH_IN_LAST_DAY = 39;
 const PHOTO_DAYS: Record<number, string> = { 14: "Week 3", 35: "Week 6" };
 const CHECKIN_DAYS = [40, 41, 42];
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -60,7 +63,10 @@ const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.
 const inWindow = (minutes: number, from: number) => minutes >= from && minutes < from + WINDOW_MIN;
 
 export type ReminderPrefs = ReminderPrefsRow;
-export const DEFAULT_PREFS: ReminderPrefs = { weighIn: true, progressPhotos: true, missedSession: true, clubChallenges: true };
+export const DEFAULT_PREFS: ReminderPrefs = { weighIn: true, progressPhotos: true, missedSession: true, clubChallenges: true, weighInTime: "07:30" };
+/** When the weigh-in (and photo-slot) reminder goes out. */
+const weighMinutes = (p: ReminderPrefs) => (p.weighIn ? toMinutes(p.weighInTime) : MORNING_MINUTES);
+const weighDay = (day: number) => day >= WEIGH_IN_FIRST_DAY && day <= WEIGH_IN_LAST_DAY;
 
 export interface ReminderPlan {
   reminderTime: string | null;
@@ -76,7 +82,7 @@ const sessionOn = (plan: ReminderPlan, iso: string) => sessionOnDate(plan.sessio
 
 export interface DueReminder { kind: ReminderKind; msg: PushMessage }
 
-const NO_FACTS: ReminderFacts = { loggedToday: false, loggedYesterday: false, weighedRecently: false, photosThisCycle: [] };
+const NO_FACTS: ReminderFacts = { loggedToday: false, loggedYesterday: false, weighedToday: false, photosThisCycle: [] };
 
 /** Which reminders are due right now. Pure, so it's unit-tested; the job looks up the facts. */
 export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderFacts = NO_FACTS): DueReminder[] {
@@ -107,8 +113,8 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderF
     }
   }
 
-  if (inWindow(now.minutes, MORNING_MINUTES)) {
-    const weigh = plan.prefs.weighIn && WEIGH_IN_DAYS.includes(day) && !facts.weighedRecently;
+  if (inWindow(now.minutes, weighMinutes(plan.prefs))) {
+    const weigh = plan.prefs.weighIn && weighDay(day) && !facts.weighedToday;
     const slot = PHOTO_DAYS[day];
     const photo = plan.prefs.progressPhotos && slot && !facts.photosThisCycle.includes(slot) ? slot : undefined;
     if (weigh) {
@@ -116,7 +122,7 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderF
         kind: "WEIGH_IN",
         msg: photo
           ? { title: `Weigh-in day, and your ${photo} photo`, body: "Weigh in before breakfast, then take your photo in the same spot and light as Day 1.", url: "/progress", tag: `weigh-${now.date}` }
-          : { title: "Weigh-in day", body: "Step on the scale before breakfast, after the bathroom. It keeps your 7-day average honest.", url: "/today", tag: `weigh-${now.date}` },
+          : { title: "Morning weigh-in", body: "Step on the scale before breakfast, after the bathroom. It keeps your 7-day average honest.", url: "/today?weigh=1", tag: `weigh-${now.date}` },
       });
     } else if (photo) {
       due.push({
@@ -152,7 +158,7 @@ export function dueReminders(plan: ReminderPlan, now: LocalNow, facts: ReminderF
 function maybeDue(c: ReminderCandidate, now: LocalNow): boolean {
   const day = daysBetween(c.startDate, now.date);
   if (inWindow(now.minutes, EVE_MINUTES) && day < 7) return true;
-  if (inWindow(now.minutes, MORNING_MINUTES) && (c.prefs.weighIn || c.prefs.progressPhotos) && WEIGH_IN_DAYS.includes(day)) return true;
+  if (inWindow(now.minutes, weighMinutes(c.prefs)) && ((c.prefs.weighIn && weighDay(day)) || (c.prefs.progressPhotos && PHOTO_DAYS[day]))) return true;
   if (inWindow(now.minutes, MORNING_MINUTES) && CHECKIN_DAYS.includes(day)) return true;
   if (inWindow(now.minutes, MISSED_MINUTES) && c.prefs.missedSession && day >= 1 && now.date <= addDaysIso(c.endDate, 1)) return true;
   return !!c.reminderTime && inWindow(now.minutes, toMinutes(c.reminderTime)) && now.date >= c.startDate && now.date <= c.endDate;

@@ -69,15 +69,17 @@ export function distanceText(km: number, units: Units): string {
   return units === "IMPERIAL" ? `${trim1(km / MI)} mi` : `${trim1(km)} km`;
 }
 
-export function activityDraft(a: { activityType: string; durationMinutes: number; distanceKm: number | null }, units: Units): string {
+export function activityDraft(a: { activityType: string; durationMinutes: number; distanceKm: number | null; setting?: string | null }, units: Units): string {
   const t = minutesText(a.durationMinutes);
   const km = a.distanceKm && a.distanceKm > 0 ? a.distanceKm : null;
   const verb = VERB[a.activityType];
+  // README "Treadmill runs and walks": "Ran 5 km on the treadmill".
+  const where = a.setting === "TREADMILL" && (a.activityType === "RUN" || a.activityType === "WALK") ? " on the treadmill" : "";
   if (verb && km) {
     const rate = a.activityType === "CYCLE" ? speedText(a.durationMinutes, km, units) : a.activityType === "RUN" || a.activityType === "WALK" ? paceText(a.durationMinutes, km, units) : null;
-    return `${verb} ${distanceText(km, units)} in ${t}${rate ? ` (${rate})` : ""}.`;
+    return `${verb} ${distanceText(km, units)}${where} in ${t}${rate ? ` (${rate})` : ""}.`;
   }
-  if (verb) return `${verb} for ${t}.`;
+  if (verb) return `${verb}${where} for ${t}.`;
   if (FOR[a.activityType]) return `${FOR[a.activityType]} for ${t}.`;
   const label = ACTIVITY_TYPES[a.activityType]?.label;
   return label ? `Did the ${label.toLowerCase()} (${t}).` : `Logged an activity: ${t}.`;

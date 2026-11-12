@@ -124,6 +124,15 @@ export const trackingTypeDefs = /* GraphQL */ `
     "ISO date-time. Lets a missed planned session be logged on its own day. Defaults to now."
     startedAt: String
     sets: [SetLogInput!]!
+    "How each exercise felt (README, Exercise ease). Optional; one per exercise with a logged set."
+    ratings: [ExerciseRatingInput!]
+  }
+
+  enum Ease { EASY OKAY HARD }
+
+  input ExerciseRatingInput {
+    exerciseId: ID!
+    ease: Ease!
   }
 
   enum ActivityKind { CARDIO SPORT WARMUP MOBILITY ABS }
@@ -143,7 +152,13 @@ export const trackingTypeDefs = /* GraphQL */ `
     kcalEstimated: Boolean!
     avgHeartRate: Int
     effort: Effort
+    "Walks and runs: OUTDOOR or TREADMILL."
+    setting: ActivitySetting!
+    "Treadmill incline, 0 to 15%."
+    inclinePct: Float
   }
+
+  enum ActivitySetting { OUTDOOR TREADMILL }
 
   input LogActivityInput {
     performedOn: String!
@@ -154,6 +169,10 @@ export const trackingTypeDefs = /* GraphQL */ `
     kcal: Int
     avgHeartRate: Int
     effort: Effort
+    "Walks and runs only. Defaults to OUTDOOR."
+    setting: ActivitySetting
+    "Treadmill only, 0 to 15%."
+    inclinePct: Float
   }
 
   input ProgressPhotoInput {

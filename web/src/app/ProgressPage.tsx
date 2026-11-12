@@ -295,7 +295,7 @@ export function ProgressPage() {
         <div className="acol">
           <section className="card fadein">
             <div className="card-h">
-              <div><h3>Body weight</h3><p>{weights.length > 2 ? "Dots are weigh-ins, the line is your 7-day average" : "Weigh in 3 to 4 times a week, first thing in the morning"}</p></div>
+              <div><h3>Body weight</h3><p>{weights.length > 2 ? "Dots are weigh-ins, the line is your 7-day average" : "Every morning, before breakfast. The 7-day average smooths out the daily swings."}</p></div>
               <button type="button" className="cta small-cta" style={{ minWidth: 0 }} onClick={sheets.weighIn}>Log weigh-in<Plus /></button>
             </div>
             <div className="statrow">

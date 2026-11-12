@@ -6,14 +6,14 @@ import type { UserRow } from "../identity/identity.repository.js";
 import {
   addDaysIso, adaptations, buildWeek, computeProjection, computeTargets, dayRange, generatePlan, isScreenedOut, mondayOf,
   restSuggestion, suggestLoadKg, swapIssue, swappedOrder, toIsoDate, validateDiet, validateIntake, validateTraining, weekTypes, weekdayOf,
-  PLACEHOLDER_DIET, quickTraining, exerciseSwapOptions, swapFilters, type SwapFilter,
+  PLACEHOLDER_DIET, quickTraining, progressionOffer, type ProgressionOffer, exerciseSwapOptions, swapFilters, type SwapFilter,
   type DaySwap, type DietInput, type FuelLifestyle, type GeneratedPlan, type HealthScreening, type IntakeSection, type TrainingBasics,
   type TrainingDetails, type TrainingInput,
 } from "./engine/index.js";
 import {
   archiveActiveProgram, deactivateProgramTemplates, deleteScheduleSwaps, getActiveProgram, getIntake, insertGeneratedTemplates,
   insertProgram, insertScheduleSwap, emailTakenByOther, listActiveSessions, listScheduleSwaps, lockProgram, markOnboarded,
-  exerciseIdsByName, resetTemplateExercise, saveFuelLifestyle, saveTrainingDetails, swapTemplateExercise, setReminderTime, templateLoggedNear, updateProgramSchedule, upsertHealthScreening, upsertIntake,
+  exerciseIdsByName, exerciseLogHistory, userUnits, resetTemplateExercise, saveFuelLifestyle, saveTrainingDetails, swapTemplateExercise, setReminderTime, templateLoggedNear, updateProgramSchedule, upsertHealthScreening, upsertIntake,
   type IntakeExtras, type ScheduleSwapRow, type StoredSession,
 } from "./planning.repository.js";
 import {
@@ -188,7 +188,7 @@ export interface ActivePlan {
   splitLabel: string;
   targets: ReturnType<typeof computeTargets>;
   projection: ReturnType<typeof computeProjection>;
-  sessions: (StoredSession & { exercises: (StoredSession["exercises"][number] & { suggestedLoadKg: number | null; startLoadKg: number | null })[] })[];
+  sessions: (StoredSession & { exercises: (StoredSession["exercises"][number] & { suggestedLoadKg: number | null; startLoadKg: number | null; offer: ProgressionOffer | null })[] })[];
   restDays: { weekday: number; suggestion: string }[];
   adaptations: ReturnType<typeof adaptations>;
   /** Day swaps the user made, per week, in order. The plan's week (sessions) is unchanged by them. */
@@ -209,6 +209,9 @@ export async function getActivePlan(userId: string): Promise<ActivePlan | null> 
   if (!intake || !nplan) throw notFound("Plan data is incomplete. Please redo onboarding.");
   const t = intake.training;
   const computed = computeTargets(t, program.daysPerWeek);
+  // Progression offers for the next time each exercise comes up (README "Exercise ease").
+  const ids = [...new Set(sessions.flatMap((s) => s.exercises.map((e) => e.exerciseId).filter((x): x is string => !!x)))];
+  const [history, units] = await Promise.all([exerciseLogHistory(userId, ids), userUnits(userId)]);
   const used = new Set(sessions.map((s) => s.weekday));
   const restDays = [0, 1, 2, 3, 4, 5, 6].filter((d) => !used.has(d)).map((weekday) => ({ weekday, suggestion: restSuggestion(weekday, t.cardioLikes) }));
   const week = { daysPerWeek: program.daysPerWeek, splitLabel: program.splitLabel, sessions, restDays };
@@ -220,7 +223,10 @@ export async function getActivePlan(userId: string): Promise<ActivePlan | null> 
     projection: computeProjection(t, program.startDate),
     sessions: sessions.map((s) => ({
       ...s,
-      exercises: s.exercises.map((e) => ({ ...e, suggestedLoadKg: suggestLoadKg(e.name, t), startLoadKg: program.startLoads[e.name] ?? null })),
+      exercises: s.exercises.map((e) => ({
+        ...e, suggestedLoadKg: suggestLoadKg(e.name, t), startLoadKg: program.startLoads[e.name] ?? null,
+        offer: e.exerciseId ? progressionOffer(e.name, e, history.get(e.exerciseId) ?? [], units) : null,
+      })),
     })),
     restDays,
     adaptations: adaptations(t, diet, week),

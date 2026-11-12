@@ -45,6 +45,8 @@ test("activity drafts: run pace, cycling speed, sport and routine wording", () =
   assert.equal(activityDraft({ activityType: "FOOTBALL", durationMinutes: 90, distanceKm: null }, "METRIC"), "Played football for 1 h 30 min.");
   assert.equal(activityDraft({ activityType: "ABS", durationMinutes: 8, distanceKm: null }, "METRIC"), "Did the abs finisher (8 min).");
   assert.equal(activityDraft({ activityType: "RUN", durationMinutes: 30, distanceKm: 4.828 }, "IMPERIAL"), "Ran 3 mi in 30 min (10:00 /mi).");
+  assert.equal(activityDraft({ activityType: "RUN", durationMinutes: 30, distanceKm: 5, setting: "TREADMILL" }, "METRIC"), "Ran 5 km on the treadmill in 30 min (6:00 /km).");
+  assert.equal(activityDraft({ activityType: "WALK", durationMinutes: 20, distanceKm: null, setting: "TREADMILL" }, "METRIC"), "Walked on the treadmill for 20 min.");
 });
 
 test("pace rounds 59.6 seconds up to the next minute", () => {

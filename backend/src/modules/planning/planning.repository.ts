@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { pool } from "../../shared/db/pool.js";
 import type {
-  BuildOptions, FuelLifestyle, GoalType, HealthScreening, IntakeSection, TrainingDetails, LoggedSet, PlannedSession, SessionType, TrainingInput, WarmupItem, WeekPlan,
+  BuildOptions, Ease, ExerciseSessionLog, FuelLifestyle, GoalType, HealthScreening, IntakeSection, TrainingDetails, LoggedSet, PlannedSession, SessionType, TrainingInput, WarmupItem, WeekPlan,
 } from "./engine/index.js";
 import { exerciseMeta, patternOf } from "./engine/index.js";
 
@@ -435,4 +435,39 @@ export async function insertCheckin(db: Db, c: { userId: string; programId: stri
     `INSERT INTO tracking.cycle_checkins (user_id, program_id, next_program_id, answers, results, changes) VALUES ($1,$2,$3,$4,$5,$6)`,
     [c.userId, c.programId, c.nextProgramId, JSON.stringify(c.answers), JSON.stringify(c.results), JSON.stringify(c.changes)],
   );
+}
+
+/**
+ * The last 8 logged sessions of each exercise, with how they felt
+ * (README "Exercise ease"), for progression offers.
+ */
+export async function exerciseLogHistory(userId: string, exerciseIds: string[], db: Db = pool): Promise<Map<string, ExerciseSessionLog[]>> {
+  const out = new Map<string, ExerciseSessionLog[]>();
+  if (!exerciseIds.length) return out;
+  const { rows } = await db.query<{ exercise_id: string; started_at: Date; sets: { reps: number; weightKg: number }[]; ease: Ease | null }>(
+    `WITH s AS (
+       SELECT ws.id, ws.started_at, sl.exercise_id,
+              json_agg(json_build_object('reps', sl.reps, 'weightKg', sl.weight_kg) ORDER BY sl.set_number) AS sets,
+              ROW_NUMBER() OVER (PARTITION BY sl.exercise_id ORDER BY ws.started_at DESC) AS rn
+         FROM tracking.workout_sessions ws
+         JOIN tracking.set_logs sl ON sl.session_id = ws.id
+        WHERE ws.user_id = $1 AND sl.exercise_id = ANY($2::uuid[])
+        GROUP BY ws.id, ws.started_at, sl.exercise_id
+     )
+     SELECT s.exercise_id, s.started_at, s.sets, er.ease
+       FROM s LEFT JOIN tracking.exercise_ratings er ON er.session_id = s.id AND er.exercise_id = s.exercise_id
+      WHERE s.rn <= 8`,
+    [userId, exerciseIds],
+  );
+  for (const r of rows) {
+    const list = out.get(r.exercise_id) ?? [];
+    list.push({ startedAt: r.started_at.toISOString(), sets: r.sets.map((x) => ({ reps: Number(x.reps), weightKg: Number(x.weightKg) })), ease: r.ease });
+    out.set(r.exercise_id, list);
+  }
+  return out;
+}
+
+export async function userUnits(userId: string, db: Db = pool): Promise<"METRIC" | "IMPERIAL"> {
+  const { rows } = await db.query<{ units: string }>(`SELECT units FROM identity.users WHERE id = $1`, [userId]);
+  return rows[0]?.units === "IMPERIAL" ? "IMPERIAL" : "METRIC";
 }

@@ -235,7 +235,7 @@ test("push reminders: subscribe, send once per day, drop dead devices", async ()
   assert.equal(pushed[0].msg.title, `${name} today`);
   assert.deepEqual(await runReminderJob(new Date(`${day}T18:05:00Z`)), { sent: 0 }, "once per day");
 
-  // Optional reminders: on by default, each switchable. Day 7 at 07:35 Accra is a weigh-in morning.
+  // Optional reminders: on by default, each switchable. Day 7 at 07:35 Accra is a weigh-in morning (every plan day 1-39 is).
   const PREFS = `{ reminderPrefs { weighIn progressPhotos missedSession } }`;
   assert.deepEqual((await ok(PREFS, {}, jay)).reminderPrefs, { weighIn: true, progressPhotos: true, missedSession: true });
   const day7 = addDaysIso(plan.startDate, 7);
@@ -244,7 +244,7 @@ test("push reminders: subscribe, send once per day, drop dead devices", async ()
   await ok(`mutation($i:ReminderPrefsInput!){ setReminderPrefs(input:$i){ weighIn } }`, { i: { weighIn: true, progressPhotos: true, missedSession: true } }, jay);
   pushed.length = 0;
   assert.deepEqual(await runReminderJob(new Date(`${day7}T07:40:00Z`)), { sent: 1 });
-  assert.equal(pushed[0].msg.title, "Weigh-in day");
+  assert.equal(pushed[0].msg.title, "Morning weigh-in");
 
   // Photo slots: the Week 3 line drops once this cycle's Week 3 photo is saved.
   const SYNC = `mutation($p:[ProgressPhotoInput!]!){ syncProgressPhotos(photos:$p) }`;
@@ -259,7 +259,7 @@ test("push reminders: subscribe, send once per day, drop dead devices", async ()
   await ok(SYNC, { p: photoAt(addDaysIso(plan.startDate, 12)) }, jay);
   pushed.length = 0;
   await runReminderJob(new Date(`${day14}T07:40:00Z`));
-  assert.equal(pushed[0].msg.title, "Weigh-in day");
+  assert.equal(pushed[0].msg.title, "Morning weigh-in");
   await ok(SYNC, { p: [] }, jay);
   assert.equal((await pool.query(`SELECT 1 FROM tracking.progress_photos WHERE user_id = $1`, [jay])).rowCount, 0, "a deleted photo is removed");
 
@@ -1226,7 +1226,7 @@ test("quick start: the basics are enough for a plan, and the rest is owed", asyn
 });
 
 test("quick start: Fuel is refused until it's set up, then targets are recalculated", async () => {
-  const code = async (q: string, v: object) => (await gql(q, v, quickUser)).errors?.[0].extensions.code;
+  const code = async (q: string, v: Record<string, unknown>) => (await gql(q, v, quickUser)).errors?.[0].extensions.code;
   assert.equal(await code(`query($d:String!){ mealDay(date:$d){ date } }`, { d: today }), "FUEL_SETUP_NEEDED");
   assert.equal(await code(`mutation($d:String!){ setWater(date:$d, ml:500){ date } }`, { d: today }), "FUEL_SETUP_NEEDED");
   assert.equal(await code(`mutation($i:LogFoodInput!){ logFood(input:$i){ date } }`, { i: { date: today, slot: "LUNCH", foodKey: "jollof-rice", portionIndex: 0, quantity: 1 } }), "FUEL_SETUP_NEEDED");
@@ -1348,4 +1348,72 @@ test("exercise swaps: a one-off swap is logged with what it replaced, and checke
   assert.deepEqual(rows[0], { exercise_id: opt.exerciseId, replaces_exercise_id: ex.exerciseId });
   // The plan itself is unchanged.
   assert.equal((await ok(SWAP_PLAN, {}, swapper)).myPlan.sessions[0].exercises[0].name, ex.name);
+});
+
+// ── App polish ──────────────────────────────────────────────────────────
+
+const LOG_RATED = `mutation($i:LogWorkoutSessionInput!){ logWorkoutSession(input:$i){ id } }`;
+const OFFER_PLAN = `{ myPlan { sessions { templateId exercises { exerciseId name sets reps offer { kind weightKg reps steady fromWeightKg fromReps } } } } }`;
+
+test("exercise ease: ratings are saved with the workout and checked", async () => {
+  const u = await newUser("Esi");
+  await ok(ONBOARD, { i: { screening: screeningClear, training, diet, startDate: today } }, u);
+  const s = (await ok(OFFER_PLAN, {}, u)).myPlan.sessions[0];
+  const [a, b] = s.exercises;
+  const sets = [{ exerciseId: a.exerciseId, setNumber: 1, reps: 8, weightKg: 40 }];
+  assert.match((await gql(LOG_RATED, { i: { templateId: s.templateId, sets, ratings: [{ exerciseId: b.exerciseId, ease: "EASY" }] } }, u)).errors?.[0].message, /logged set/);
+  assert.match((await gql(LOG_RATED, { i: { templateId: s.templateId, sets, ratings: [{ exerciseId: a.exerciseId, ease: "EASY" }, { exerciseId: a.exerciseId, ease: "HARD" }] } }, u)).errors?.[0].message, /once/);
+  const id = (await ok(LOG_RATED, { i: { templateId: s.templateId, sets, ratings: [{ exerciseId: a.exerciseId, ease: "OKAY" }] } }, u)).logWorkoutSession.id;
+  assert.deepEqual((await pool.query(`SELECT exercise_id, ease FROM tracking.exercise_ratings WHERE session_id = $1`, [id])).rows, [{ exercise_id: a.exerciseId, ease: "OKAY" }]);
+});
+
+test("exercise ease: +1 rep after 2 steady sessions, more weight after 4, asked in the plan", async () => {
+  const u = await newUser("Kofi");
+  await ok(ONBOARD, { i: { screening: screeningClear, training, diet, startDate: today } }, u);
+  const s = (await ok(OFFER_PLAN, {}, u)).myPlan.sessions[0];
+  // A loaded exercise with a rep range, e.g. "6-10".
+  const ex = s.exercises.find((e: any) => /^\d+-\d+$/.test(e.reps))!;
+  const low = Number(ex.reps.split("-")[0]);
+  const offer = async () => (await ok(OFFER_PLAN, {}, u)).myPlan.sessions[0].exercises.find((e: any) => e.exerciseId === ex.exerciseId).offer;
+  const log = (daysAgo: number, reps: number, ease: string) => ok(LOG_RATED, { i: {
+    templateId: s.templateId, startedAt: `${addDaysIso(today, -daysAgo)}T10:00:00Z`,
+    sets: Array.from({ length: ex.sets }, (_, k) => ({ exerciseId: ex.exerciseId, setNumber: k + 1, reps, weightKg: 40 })),
+    ratings: [{ exerciseId: ex.exerciseId, ease }],
+  } }, u);
+  assert.equal(await offer(), null, "nothing logged yet");
+  await log(8, low, "EASY");
+  assert.equal((await offer()).kind, "GOAL");
+  await log(6, low, "OKAY");
+  assert.deepEqual(await offer(), { kind: "REPS_UP", weightKg: 40, reps: low + 1, steady: 2, fromWeightKg: 40, fromReps: low });
+  await log(4, low + 1, "EASY");
+  await log(2, low + 2, "EASY");
+  const up = await offer();
+  assert.equal(up.kind, "WEIGHT_UP");
+  assert.ok(up.weightKg > 40 && up.reps === low && up.steady === 4, JSON.stringify(up));
+  await log(1, low, "HARD");
+  assert.equal(await offer(), null, "a Hard holds");
+});
+
+test("treadmill: walks and runs only, incline raises the estimate, and shares say so", async () => {
+  const u = await newUser("Ama");
+  await ok(ONBOARD, { i: { screening: screeningClear, training, diet, startDate: today } }, u);
+  const LOG = `mutation($i:LogActivityInput!){ logActivity(input:$i){ id kcal setting inclinePct } }`;
+  const base = { performedOn: today, activityType: "WALK", durationMinutes: 30 };
+  const flat = (await ok(LOG, { i: base }, u)).logActivity;
+  assert.deepEqual([flat.setting, flat.inclinePct], ["OUTDOOR", null]);
+  const hill = (await ok(LOG, { i: { ...base, setting: "TREADMILL", inclinePct: 8 } }, u)).logActivity;
+  assert.deepEqual([hill.setting, hill.inclinePct], ["TREADMILL", 8]);
+  assert.ok(hill.kcal > flat.kcal);
+  assert.match((await gql(LOG, { i: { ...base, activityType: "CYCLE", setting: "TREADMILL" } }, u)).errors?.[0].message, /treadmill/);
+  assert.match((await gql(LOG, { i: { ...base, inclinePct: 3 } }, u)).errors?.[0].message, /Incline/);
+  assert.match((await gql(LOG, { i: { ...base, setting: "TREADMILL", inclinePct: 20 } }, u)).errors?.[0].message, /0 to 15/);
+});
+
+test("weigh-in reminder: a time of your choosing, in 15-minute steps", async () => {
+  const u = await newUser("Yaw");
+  const SET = `mutation($i:ReminderPrefsInput!){ setReminderPrefs(input:$i){ weighIn weighInTime } }`;
+  assert.equal((await ok(`{ reminderPrefs { weighInTime } }`, {}, u)).reminderPrefs.weighInTime, "07:30");
+  assert.deepEqual((await ok(SET, { i: { weighIn: true, progressPhotos: true, missedSession: true, weighInTime: "06:15" } }, u)).setReminderPrefs, { weighIn: true, weighInTime: "06:15" });
+  assert.equal((await ok(SET, { i: { weighIn: true, progressPhotos: true, missedSession: true } }, u)).setReminderPrefs.weighInTime, "06:15", "left out: unchanged");
+  assert.match((await gql(SET, { i: { weighIn: true, progressPhotos: true, missedSession: true, weighInTime: "06:10" } }, u)).errors?.[0].message, /15-minute/);
 });

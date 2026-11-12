@@ -192,3 +192,15 @@ test("generatePlan bundles everything and every exercise is seedable", () => {
   for (const s of buildWeek({ ...jay, priorityMuscles: ["CORE"], injuries: ["KNEE", "LOWER_BACK", "SHOULDER", "ELBOW", "WRIST", "HIP"] }, 6).sessions)
     for (const e of s.exercises) assert.ok(known.has(e.name), `${e.name} is in the seed list`);
 });
+
+test("treadmill calories use incline", async () => {
+  const { estimateActivityKcal, treadmillMet } = await import("./index.js");
+  // 5 km/h walk, 10% incline: ACSM gives about 7.7 MET.
+  assert.equal(treadmillMet("WALK", 60, 10, 5), 7.7);
+  assert.equal(treadmillMet("WALK", 30, 0, null), null);
+  assert.equal(treadmillMet("RUN", 30, 5, null), 10.5);
+  const flat = estimateActivityKcal("WALK", 30, 80, "MODERATE");
+  const hill = estimateActivityKcal("WALK", 30, 80, "MODERATE", { inclinePct: 8, distanceKm: null });
+  assert.ok(hill > flat);
+  assert.equal(estimateActivityKcal("WALK", 30, 80, "MODERATE", { inclinePct: 0, distanceKm: null }), flat);
+});
